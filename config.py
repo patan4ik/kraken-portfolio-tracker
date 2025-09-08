@@ -1,6 +1,7 @@
 # config.py
 import os
 
+
 def load_keyfile(path="kraken.key"):
     """
     Загружает API ключи для Kraken.

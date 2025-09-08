@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 def test_normalize_asset_code_variants(patch_api_and_keys):
     b = patch_api_and_keys
     assert b.normalize_asset_code("ETH") == "ETH"
@@ -8,6 +9,7 @@ def test_normalize_asset_code_variants(patch_api_and_keys):
     assert b.normalize_asset_code("SOL.F") == "SOL"
     assert b.normalize_asset_code("USDT.Z") == "USDT"
     assert b.normalize_asset_code("XRP10") == "XRP"
+
 
 def test_fetch_asset_pairs_and_prices(patch_api_and_keys):
     b = patch_api_and_keys

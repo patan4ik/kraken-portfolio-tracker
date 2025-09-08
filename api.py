@@ -15,6 +15,7 @@ PRIVATE_METHODS = {
     "CancelOrder",
 }
 
+
 class KrakenAPI:
     """
     Обёртка для работы с Kraken API.
@@ -24,7 +25,9 @@ class KrakenAPI:
     def __init__(self, api_key: str, api_secret: str):
         self.api = krakenex.API(key=api_key, secret=api_secret)
 
-    def _call(self, method: str, data: Optional[dict] = None, max_retries: int = 3) -> Dict[str, Any]:
+    def _call(
+        self, method: str, data: Optional[dict] = None, max_retries: int = 3
+    ) -> Dict[str, Any]:
         """
         Универсальный вызов Kraken API с повторными попытками при ошибках.
         """
@@ -40,7 +43,9 @@ class KrakenAPI:
                     response = self.api.query_public(method, data)
 
                 if response.get("error"):
-                    print(f"[API ERROR] {response['error']} (попытка {attempt}/{max_retries})")
+                    print(
+                        f"[API ERROR] {response['error']} (попытка {attempt}/{max_retries})"
+                    )
                     time.sleep(2 * attempt)
                     continue
 
@@ -50,7 +55,9 @@ class KrakenAPI:
                 print(f"[EXCEPTION] {e} (попытка {attempt}/{max_retries})")
                 time.sleep(2 * attempt)
 
-        raise RuntimeError(f"Не удалось выполнить запрос {method} после {max_retries} попыток")
+        raise RuntimeError(
+            f"Не удалось выполнить запрос {method} после {max_retries} попыток"
+        )
 
     # -----------------------
     # Методы API

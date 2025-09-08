@@ -18,7 +18,7 @@ SNAPSHOTS_FILE = os.path.join(BALANCES_DIR, "portfolio_snapshots.csv")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()]
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,9 @@ def compute_trends(df: pd.DataFrame) -> pd.DataFrame:
             match = prev_df.loc[prev_df["Asset"] == asset, "Value (EUR)"]
             if not match.empty:
                 df.loc[df["Asset"] == asset, trend_col] = round(
-                    df.loc[df["Asset"] == asset, "Value (EUR)"].values[0] - match.values[0], 2
+                    df.loc[df["Asset"] == asset, "Value (EUR)"].values[0]
+                    - match.values[0],
+                    2,
                 )
 
     trend_cols = [c for c in df.columns if c.startswith("Trend_")]
@@ -83,8 +85,15 @@ def fetch_prices_batch(api: KrakenAPI, pairs: list[str]) -> dict[str, Decimal]:
 # ---------------- ОСНОВНАЯ ЛОГИКА ---------------- #
 def main():
     parser = argparse.ArgumentParser(description="Kraken Portfolio Balances")
-    parser.add_argument("--quote", default="ZEUR", help="Валюта для оценки (по умолчанию ZEUR)")
-    parser.add_argument("--min-balance", type=float, default=0.001, help="Минимальный баланс для отображения")
+    parser.add_argument(
+        "--quote", default="ZEUR", help="Валюта для оценки (по умолчанию ZEUR)"
+    )
+    parser.add_argument(
+        "--min-balance",
+        type=float,
+        default=0.001,
+        help="Минимальный баланс для отображения",
+    )
     args = parser.parse_args()
 
     # API
@@ -141,30 +150,46 @@ def main():
         amount_total = info["available"] + info["staked"]
         if amount_total < args.min_balance:
             continue
-        price_eur = 1.0 if asset == args.quote else float(prices.get(asset_to_pair.get(asset), 0))
+        price_eur = (
+            1.0
+            if asset == args.quote
+            else float(prices.get(asset_to_pair.get(asset), 0))
+        )
         val_avail = info["available"] * price_eur
         val_staked = info["staked"] * price_eur
         value_total = val_avail + val_staked
         total_value += value_total
 
-        rows.append([
-            asset,
-            round(amount_total, 8),
-            round(price_eur, 8),
-            round(value_total, 8),
-            round(info["available"], 8),
-            round(val_avail, 8),
-            round(info["staked"], 8),
-            round(val_staked, 8),
-            0.0,  # Total Fees (EUR) placeholder
-            0.0   # Avg Buy Price (EUR) placeholder
-        ])
+        rows.append(
+            [
+                asset,
+                round(amount_total, 8),
+                round(price_eur, 8),
+                round(value_total, 8),
+                round(info["available"], 8),
+                round(val_avail, 8),
+                round(info["staked"], 8),
+                round(val_staked, 8),
+                0.0,  # Total Fees (EUR) placeholder
+                0.0,  # Avg Buy Price (EUR) placeholder
+            ]
+        )
 
-    df = pd.DataFrame(rows, columns=[
-        "Asset", "Amount", "Current Price (EUR)", "Value (EUR)",
-        "Available", "Available EUR", "Staked", "Staked EUR",
-        "Total Fees (EUR)", "Avg Buy Price (EUR)"
-    ])
+    df = pd.DataFrame(
+        rows,
+        columns=[
+            "Asset",
+            "Amount",
+            "Current Price (EUR)",
+            "Value (EUR)",
+            "Available",
+            "Available EUR",
+            "Staked",
+            "Staked EUR",
+            "Total Fees (EUR)",
+            "Avg Buy Price (EUR)",
+        ],
+    )
     df["Portfolio %"] = (df["Value (EUR)"] / total_value * 100).round(6)
     df.sort_values(by="Value (EUR)", ascending=False, inplace=True)
 
@@ -174,20 +199,24 @@ def main():
     # ---- Расчёт total_trend_value (исправленный) ---- #
     total_trend_value = 0.0
     if "Portfolio Trend Avg" in df.columns:
-#        total_trend_value = df["Portfolio Trend Avg"].sum()
+        #        total_trend_value = df["Portfolio Trend Avg"].sum()
         total_trend_value = df.loc[df["Asset"] != "ZEUR", "Portfolio Trend Avg"].sum()
 
-#    trend_cols = [c for c in df.columns if c.startswith("Trend_")]
-#    if trend_cols:
-#        total_trend_value = df_trends.sum(axis=1).sum()
+    #    trend_cols = [c for c in df.columns if c.startswith("Trend_")]
+    #    if trend_cols:
+    #        total_trend_value = df_trends.sum(axis=1).sum()
 
     # ---- ВЫВОД НА ЭКРАН ---- #
     short_df = df[["Asset", "Amount", "Current Price (EUR)", "Value (EUR)"]]
     # extra row to enable for unit test_main_creates_balance_and_snapshot, test_snapshots_update_last_row, test_snapshots_append_new_day functionality check.
     # Expected result - KeyError: "['AssetX'] not in index
     # short_df = df[["AssetX", "Amount", "Current Price (EUR)", "Value (EUR)"]]
-    logger.info("\n" + tabulate(short_df, headers="keys", tablefmt="psql", showindex=False))
-    logger.info(f"\nИТОГО: €{total_value:,.2f} | Trend: €{total_trend_value:,.2f} | Прогноз: €{(total_value + total_trend_value):,.2f}")
+    logger.info(
+        "\n" + tabulate(short_df, headers="keys", tablefmt="psql", showindex=False)
+    )
+    logger.info(
+        f"\nИТОГО: €{total_value:,.2f} | Trend: €{total_trend_value:,.2f} | Прогноз: €{(total_value + total_trend_value):,.2f}"
+    )
 
     # ---- СОХРАНЕНИЕ ОСНОВНОГО CSV ---- #
     os.makedirs(BALANCES_DIR, exist_ok=True)
@@ -201,19 +230,26 @@ def main():
         "Timestamp": datetime.now().strftime("%d.%m.%Y"),
         "Portfolio Value (EUR)": round(total_value, 2),
         "Portfolio Trend Avg (EUR)": round(total_trend_value, 2),
-        "Total Potential Value": round(total_value + total_trend_value, 2)
+        "Total Potential Value": round(total_value + total_trend_value, 2),
     }
 
     os.makedirs(BALANCES_DIR, exist_ok=True)
 
     if not os.path.exists(SNAPSHOTS_FILE):
-        pd.DataFrame([snapshot_row]).to_csv(SNAPSHOTS_FILE, sep=";", index=False, encoding="utf-8")
+        pd.DataFrame([snapshot_row]).to_csv(
+            SNAPSHOTS_FILE, sep=";", index=False, encoding="utf-8"
+        )
     else:
         snapshots = pd.read_csv(SNAPSHOTS_FILE, sep=";", encoding="utf-8")
-        if not snapshots.empty and snapshots.iloc[-1]["Timestamp"] == snapshot_row["Timestamp"]:
+        if (
+            not snapshots.empty
+            and snapshots.iloc[-1]["Timestamp"] == snapshot_row["Timestamp"]
+        ):
             snapshots.iloc[-1] = snapshot_row
         else:
-            snapshots = pd.concat([snapshots, pd.DataFrame([snapshot_row])], ignore_index=True)
+            snapshots = pd.concat(
+                [snapshots, pd.DataFrame([snapshot_row])], ignore_index=True
+            )
         # comment next snapshots.to_csv row for unit test_snapshots_update_last_row, test_snapshots_append_new_day functionality check.
         # Expected result - tests\test_main_and_snapshots.py:93: AssertionError (logic error CSV file not updated)
         snapshots.to_csv(SNAPSHOTS_FILE, sep=";", index=False, encoding="utf-8")
@@ -223,6 +259,7 @@ def main():
     # Pause for reading output on the screen
     # print("Script has finished running. Press Enter to exit.")
     # input()
+
 
 if __name__ == "__main__":
     main()

@@ -15,6 +15,7 @@ class FixedDatetime(datetime):
         # Используем 2025-08-30 (соответствует формату %Y-%m-%d и %d.%m.%Y в коде)
         return cls(2025, 8, 30, 12, 0, 0, tzinfo=tz)
 
+
 # ---- Мок для KrakenAPI ----
 class MockKrakenAPI:
     """
@@ -23,16 +24,13 @@ class MockKrakenAPI:
     - Пары: XETHZEUR, XSOLZEUR
     - Тикеры: XETHZEUR=2000.0, XSOLZEUR=100.0
     """
+
     def __init__(self, *args, **kwargs):
         pass
 
     def get_balance(self):
         # строки, как в реальном API
-        return {
-            "ETH": "1.0",
-            "SOL": "2.0",
-            "ZEUR": "100.0"
-        }
+        return {"ETH": "1.0", "SOL": "2.0", "ZEUR": "100.0"}
 
     def get_asset_pairs(self):
         # структура, совместимая с твоим кодом
@@ -70,7 +68,12 @@ def patch_env(tmp_path, monkeypatch):
     balances_dir.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(balances, "BALANCES_DIR", str(balances_dir), raising=True)
-    monkeypatch.setattr(balances, "SNAPSHOTS_FILE", os.path.join(str(balances_dir), "portfolio_snapshots.csv"), raising=True)
+    monkeypatch.setattr(
+        balances,
+        "SNAPSHOTS_FILE",
+        os.path.join(str(balances_dir), "portfolio_snapshots.csv"),
+        raising=True,
+    )
 
     # Фиксируем argv (без лишних флагов)
     monkeypatch.setattr(sys, "argv", ["balances.py"], raising=True)
@@ -95,5 +98,7 @@ def patch_api_and_keys(monkeypatch, patch_datetime):
     """
     balances = patch_datetime
     monkeypatch.setattr(balances, "KrakenAPI", MockKrakenAPI, raising=True)
-    monkeypatch.setattr(balances, "load_keyfile", lambda: ("KEY", "SECRET"), raising=True)
+    monkeypatch.setattr(
+        balances, "load_keyfile", lambda: ("KEY", "SECRET"), raising=True
+    )
     return balances
