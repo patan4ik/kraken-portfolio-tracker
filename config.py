@@ -12,7 +12,8 @@ def load_keyfile(path="kraken.key"):
     # 1️⃣ Попытка загрузки из файла - try from file
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
-            lines = [l.strip() for l in f.read().splitlines() if l.strip()]
+            #        lines = [l.strip() for l in f.read().splitlines() if l.strip()]
+            lines = [line.strip() for line in f.read().splitlines() if line.strip()]
         if len(lines) >= 2:
             return lines[0], lines[1]
         else:

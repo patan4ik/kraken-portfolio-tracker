@@ -1,7 +1,6 @@
 import os
 import sys
 from datetime import datetime
-import types
 import pytest
 
 # Добавляем корень проекта в PYTHONPATH

@@ -1,6 +1,3 @@
-import pandas as pd
-
-
 def test_normalize_asset_code_variants(patch_api_and_keys):
     b = patch_api_and_keys
     assert b.normalize_asset_code("ETH") == "ETH"
