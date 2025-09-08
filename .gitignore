@@ -1,0 +1,15 @@
+# .gitignore
+.venv/
+__pycache__/
+.pytest_cache/
+build/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.spec
+*.key
+balances_history/
+.env
+.idea/
+.vscode/
