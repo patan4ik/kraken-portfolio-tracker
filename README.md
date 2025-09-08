@@ -26,9 +26,11 @@ Clone the repository and install dependencies:
 ```bash
 git clone https://github.com/your-username/kraken-portfolio-tracker.git
 cd kraken-portfolio-tracker
-python -m venv .venv
-.venv\Scripts\activate    # Windows
+python -m venv .venv # create VM named "venv" in Windows
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass # bypass Windows policies for VM current session
+.venv\Scripts\activate    # activate VM in Windows
 pip install -r requirements.txt
+deactivate    # deactivate VM in Windows
 ```
 
 ## API Key Setup
@@ -40,7 +42,7 @@ To use the Kraken API, create a file named `kraken.key` in the project root.
 You can start by copying the example file:
 
 ```bash
-cp kraken.key.example kraken.key 
+cp kraken.key.example kraken.key
 ```
 
 Then replace the placeholder values with your actual API credentials:
@@ -66,7 +68,7 @@ python balances.py
 ```
 This will:
 - Fetch your current Kraken balances
-- Save a snapshot to 
+- Save a snapshot to
 - Update your historical CSV log
 
 or schedule it via Task Scheduler (Windows) or cron (Linux) to log portfolio history daily.
@@ -82,13 +84,13 @@ pytest -v
 
 This project uses Black and Ruff for consistent code style:
 ```bash
-black .
-ruff check .
+black . # automatically format your files before they are committed
+ruff check . # catch code smells and unused imports before they hit production
 ```
 
 Pre-commit hooks are configured — enable them with:
-```
-pre-commit install
+```bash
+pre-commit install # Since you’ve already configured pre-commit hooks in .pre-commit-config.yaml, you can enable them locally. Now every time you run git commit, Black and Ruff will automatically check your files before they are committed — so your CI will stay green without extra work.
 ```
 
 ## Requirements
