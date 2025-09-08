@@ -99,7 +99,7 @@ pre-commit install # Since you’ve already configured pre-commit hooks in .pre-
 - Internet connection
 - Kraken API credentials
 
-See [REQUIREMENTS.md](REQUIREMENTS.md) for full dependency list.
+See [requirements.txt](requirements.txt) for full dependency list.
 
 ## Building the Executable
 
