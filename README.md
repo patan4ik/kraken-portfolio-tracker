@@ -1,4 +1,4 @@
-![Python](https://img.shields.io/badge/python-3.10+-blue)
+![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 # Kraken Portfolio Tracker
@@ -93,7 +93,7 @@ pre-commit install
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Internet connection
 - Kraken API credentials
 
