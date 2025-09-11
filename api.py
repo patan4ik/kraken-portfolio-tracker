@@ -1,6 +1,7 @@
 # api.py
 import krakenex
 import time
+import random
 from typing import Any, Dict, Optional
 
 # Список методов Kraken, которые требуют авторизации
@@ -26,11 +27,9 @@ class KrakenAPI:
         self.api = krakenex.API(key=api_key, secret=api_secret)
 
     def _call(
-        self, method: str, data: Optional[dict] = None, max_retries: int = 3
+        self, method: str, data: Optional[dict] = None, max_retries: int = 5
     ) -> Dict[str, Any]:
-        """
-        Универсальный вызов Kraken API с повторными попытками при ошибках.
-        """
+        """Универсальный вызов Kraken API с ретраями и бэкоффом"""
         if data is None:
             data = {}
 
@@ -46,40 +45,47 @@ class KrakenAPI:
                     print(
                         f"[API ERROR] {response['error']} (попытка {attempt}/{max_retries})"
                     )
-                    time.sleep(2 * attempt)
+                    # backoff: экспоненциально + случайность
+                    wait = (2**attempt) + random.uniform(2.5, 7.0)
+                    print(f"[BACKOFF] Жду {wait:.1f} сек...")
+                    time.sleep(wait)
                     continue
 
                 return response.get("result", {})
 
             except Exception as e:
                 print(f"[EXCEPTION] {e} (попытка {attempt}/{max_retries})")
-                time.sleep(2 * attempt)
+                wait = (2**attempt) + random.uniform(2.5, 7.0)
+                print(f"[BACKOFF] Жду {wait:.1f} сек...")
+                time.sleep(wait)
 
         raise RuntimeError(
             f"Не удалось выполнить запрос {method} после {max_retries} попыток"
         )
 
     # -----------------------
-    # Методы API
+    # API methods
     # -----------------------
 
     def get_assets(self) -> Dict[str, Any]:
-        """Получить список всех активов (Assets)."""
         return self._call("Assets")
 
     def get_asset_pairs(self) -> Dict[str, Any]:
-        """Получить список всех торговых пар (AssetPairs)."""
         return self._call("AssetPairs")
 
     def get_ticker(self, pair: str) -> Dict[str, Any]:
-        """Получить тикер по торговой паре (например, XXBTZEUR)."""
         return self._call("Ticker", {"pair": pair})
 
     def get_balance(self) -> Dict[str, Any]:
-        """Получить баланс аккаунта."""
         return self._call("Balance")
 
-    def get_ledgers(self, since: Optional[int] = None) -> Dict[str, Any]:
-        """Получить леджер (все операции)."""
-        data = {"since": since} if since else {}
+    def get_ledgers(
+        self, since: Optional[int] = None, ofs: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Получить леджер (с пагинацией и параметром since)."""
+        data = {}
+        if since is not None:
+            data["since"] = since
+        if ofs is not None:
+            data["ofs"] = ofs
         return self._call("Ledgers", data)

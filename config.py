@@ -1,6 +1,8 @@
 # config.py
 import os
 
+DATA_DIR = "balances_history"
+
 
 def load_keyfile(path="kraken.key"):
     """

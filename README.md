@@ -3,32 +3,40 @@
 
 # Kraken Portfolio Tracker
 
-A Python tool for tracking and analyzing your Kraken portfolio balances.  
-Generates CSV history, portfolio snapshots, and computes trends over time.
+A Python tool for tracking and analyzing your Kraken portfolio and ledger history.  
+Generates CSV snapshots, computes trends, and builds daily reports of EUR spend per asset.
 
 ## Overview
 
-Kraken Portfolio Tracker is a lightweight Python tool that helps you monitor your cryptocurrency holdings on Kraken. It fetches real-time balances, tracks historical trends, and stores daily snapshots in CSV format for easy analysis.
+Kraken Portfolio Tracker helps you monitor your cryptocurrency holdings and transaction history on Kraken.  
+It supports real-time balance tracking, historical portfolio snapshots, and incremental ledger reporting.
 
 ## Features
+
+### 📊 Portfolio Tracking
 - Fetch balances and prices from Kraken API
 - Aggregate staked and available balances
-- Save daily CSV with portfolio breakdown (can be scheduled via OS)
-- Compute portfolio trend based on historical CSVs
-- Append portfolio snapshots to `portfolio_snapshots.csv`
+- Save daily CSV snapshots (`portfolio_snapshots.csv`)
+- Compute portfolio trends from historical data
+
+### 📁 Ledger Reporting
+- Incrementally download and cache Kraken ledger (`raw-ledger.json`)
+- Build daily EUR spend reports per asset (`ledger_eur_report.csv`)
+- Efficient refid-based updates to avoid redundant API calls
+
+### 🧪 Developer Tools
 - Fully unit-tested with `pytest`
-- Supports automatic code formatting (Black) and linting (Ruff)
+- Code formatting with Black and linting with Ruff
+- Pre-commit hooks for clean commits
 
 ## Installation
-
-Clone the repository and install dependencies:
 
 ```bash
 git clone https://github.com/your-username/kraken-portfolio-tracker.git
 cd kraken-portfolio-tracker
-python -m venv .venv # create VM named "venv" in Windows
+python -m venv .venv
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass # bypass Windows policies for VM current session
-.venv\Scripts\activate    # activate VM in Windows
+.venv\Scripts\activate  # Windows
 pip install -r requirements.txt
 deactivate    # deactivate VM in Windows
 ```
@@ -67,9 +75,11 @@ Once installed and configured, run the tracker:
 python balances.py
 ```
 This will:
-- Fetch your current Kraken balances
-- Save a snapshot to
+- Fetch current balances
+- Save a snapshot
 - Update your historical CSV log
+- Load or update raw-ledger.json
+- Generate ledger_eur_report.csv with daily EUR spend per asset
 
 or schedule it via Task Scheduler (Windows) or cron (Linux) to log portfolio history daily.
 
@@ -101,7 +111,7 @@ pre-commit install # Since you’ve already configured pre-commit hooks in .pre-
 
 See [requirements.txt](requirements.txt) for full dependency list.
 
-## Building the Executable
+## Building Executable (Windows)
 
 To build a Windows `.exe` file from the source code:
 

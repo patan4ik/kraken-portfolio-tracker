@@ -10,6 +10,8 @@ from tabulate import tabulate
 
 from api import KrakenAPI
 from config import load_keyfile
+from ledger_eur_report import update_eur_report
+
 
 BALANCES_DIR = "balances_history"
 SNAPSHOTS_FILE = os.path.join(BALANCES_DIR, "portfolio_snapshots.csv")
@@ -263,3 +265,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    update_eur_report()
