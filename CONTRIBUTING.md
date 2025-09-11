@@ -38,7 +38,7 @@ To enable pre-commit hooks:
 pre-commit install
 ```
 
-🚀 How to Contribute
+## How to Contribute
 - Fork the repository
 - Create a branch for your feature or fix:
 ```
@@ -53,22 +53,22 @@ git commit -m "feat: add support for XYZ"
 ```
 - Push and open a Pull Request
 
-🧪 Testing Guidelines
+## Testing Guidelines
 - All new features should include unit tests in the tests/ directory
 - Use pytest for testing and monkeypatch for mocking where needed
 - Run pytest -v before submitting a PR
 
-📦 Project Structure
+##  Project Structure
 - balances.py: Portfolio snapshot logic
 - ledger_loader.py: Incremental ledger downloader
 - ledger_eur_report.py: EUR spend report generator
 - tests/: Unit tests for all modules
 See README.md for full usage instructions.
 
-📝 Changelog & Versioning
+## Changelog & Versioning
 If your contribution adds a feature or fixes a bug, please update CHANGELOG.md under the appropriate version heading.
 
-📄 License
+##  License
 By contributing, you agree that your code will be licensed under the MIT License.
 
 Thanks again for helping improve Kraken Portfolio Tracker!
