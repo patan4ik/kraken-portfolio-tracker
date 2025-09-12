@@ -186,4 +186,4 @@ def update_eur_report(days: int = 7):
 
     save_eur_report(df)
     logger.info("EUR report updated.")
-    logger.info("\n%s", df.tail())
+    # logger.info("\n%s", df.tail())

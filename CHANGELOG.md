@@ -20,3 +20,10 @@
 ### Notes
 - Future support planned for `ledger_units_report.py`
 - Improved resilience and efficiency for large ledger histories
+
+## [0.9.2] - Update 2025-09-12
+
+### Added
+- Ledger data storage support in SQLite (`balances_history/ledger.db`)
+- `save_entries()` function now writes to both JSON and SQLite
+- CLI continues to support flags: `--days`, `--page-size`, `--delay-min`, `--delay-max`

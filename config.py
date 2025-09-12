@@ -2,6 +2,17 @@
 import os
 
 DATA_DIR = "balances_history"
+# Общие параметры для работы с Kraken API
+
+# Пагинация (размер страницы у Kraken API)
+DEFAULT_PAGE_SIZE = 50
+
+# Сколько дней назад тянуть данные по умолчанию
+DEFAULT_DAYS = 7
+
+# Задержка между страницами (секунды)
+DEFAULT_DELAY_MIN = 1.0
+DEFAULT_DELAY_MAX = 2.5
 
 
 def load_keyfile(path="kraken.key"):

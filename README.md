@@ -84,8 +84,21 @@ This will:
 
 or schedule it via Task Scheduler (Windows) or cron (Linux) to log portfolio history daily.
 
-## Running Tests
+## Storage
+Starting from version 0.9.2, ledger data is stored in two formats:
+• 	JSON file:
+• 	SQLite database:
+The  table in the SQLite database contains all transaction fields, including a full copy of each entry in the  column.
 
+## Working with the Database
+To interact with the SQLite database, use the following commands:
+```bash
+sqlite3 balances_history/ledger.db
+sqlite> .tables
+sqlite> SELECT COUNT(*) FROM ledger;
+```
+
+## Running Tests
 Run the unit tests:
 ```
 pytest -v
