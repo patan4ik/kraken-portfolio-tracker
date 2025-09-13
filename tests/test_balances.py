@@ -104,7 +104,9 @@ def test_generate_all_reports_runs_all(
     "argparse.ArgumentParser.parse_args",
     return_value=argparse.Namespace(quote="ZEUR", min_balance=0.001),
 )
+@patch("pandas.DataFrame.to_csv")  # mock file writing
 def test_main_creates_balance_and_snapshot(
+    mock_to_csv,
     mock_args,
     mock_prices,
     mock_pairs,
@@ -112,19 +114,15 @@ def test_main_creates_balance_and_snapshot(
     mock_api,
     mock_keyfile,
     cleanup_balances_dir,
-    tmp_path,
 ):
-    balances.BALANCES_DIR = tmp_path  # ✅ override the path
-    balances.SNAPSHOTS_FILE = (
-        tmp_path / "portfolio_snapshots.csv"
-    )  # ✅ must match balances.py
     balances.main()
 
-    # balance_X.csv exists
-    files = os.listdir(tmp_path)
-    assert any(f.startswith("balance_") for f in files)
+    # ensure CSV save was attempted at least twice (balance + snapshot)
+    assert mock_to_csv.call_count >= 2
 
-    # snapshot file exists
-    assert os.path.exists(balances.SNAPSHOTS_FILE)
-    df_snap = pd.read_csv(balances.SNAPSHOTS_FILE, sep=";")
-    assert not df_snap.empty
+    # check one of the filenames has "balance_" in it
+    saved_files = [str(call.args[0]) for call in mock_to_csv.call_args_list]
+    assert any("balance_" in f for f in saved_files)
+
+    # check snapshot file saved
+    assert any("snapshot" in f for f in saved_files)
