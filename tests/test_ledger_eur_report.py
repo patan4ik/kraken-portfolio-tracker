@@ -1,7 +1,7 @@
 # tests/test_ledger_eur_report.py
 import pandas as pd
-import time
 import sys
+import time
 import os
 
 sys.path.insert(
@@ -9,6 +9,7 @@ sys.path.insert(
 )
 import storage
 from ledger_eur_report import build_eur_report
+
 
 now = int(time.time())
 

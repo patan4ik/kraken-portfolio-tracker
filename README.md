@@ -34,7 +34,7 @@ Whether you're a casual investor or a data-driven trader, this tool gives you in
 
 ### Ledger Reporting
 - Incrementally download and cache Kraken ledger entries (`raw-ledger.json`)
-- Store full ledger history in SQLite (`data/ledger.db`)
+- Store full ledger history in SQLite (`balances_history/ledger.db`)
 - **Generate reports from SQLite** (faster, flexible, no API calls):
   - **EUR report** (`ledger_eur_report.csv`) – daily EUR spent per asset
   - **Asset report** (`ledger_asset_report.csv`) – all asset acquisitions
@@ -100,7 +100,8 @@ This will:
 - Fetch current balances and prices
 - Save a balance snapshot
 - Update your historical CSV log
-- Initialize or reuse balances_history/ledger.db
+- Initialize or reuse ledger.db
+
 Generate all reports from SQLite:
 - EUR spend report
 - Asset acquisition report
@@ -108,7 +109,7 @@ Generate all reports from SQLite:
 
 ## Storage
 Starting from v0.9.2:
-Ledger data is stored in SQLite database (balances_history/ledger.db) instead of only JSON
+Ledger data is stored in SQLite database (ledger.db) instead of only JSON
 The ledger table keeps all fields including a full JSON payload
 
 Starting from v0.9.3:
@@ -125,8 +126,9 @@ sqlite> SELECT COUNT(*) FROM ledger;
 
 ## Running Tests
 Run the unit tests:
-```
+```bash
 pytest -v
+pytest --cov=. --cov-report=xm # tests with coverage
 ```
 
 ## Code Style
@@ -139,7 +141,9 @@ ruff check . # catch code smells and unused imports before they hit production
 
 Pre-commit hooks are configured — enable them with:
 ```bash
-pre-commit install # Since you’ve already configured pre-commit hooks in .pre-commit-config.yaml, you can enable them locally. Now every time you run git commit, Black and Ruff will automatically check your files before they are committed — so your CI will stay green without extra work.
+# Since you’ve already configured pre-commit hooks in .pre-commit-config.yaml, you can enable them locally.
+# Now every time you run git commit, Black and Ruff will automatically check your files before they are committed — so your CI will stay green without extra work.
+pre-commit install
 ```
 
 ## Requirements

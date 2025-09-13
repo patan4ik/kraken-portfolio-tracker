@@ -3,7 +3,7 @@ import argparse
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 from collections import defaultdict
 from typing import Dict, Any, List, DefaultDict
 
@@ -62,7 +62,8 @@ def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
             continue
 
         ts = float(sells[0].get("time", 0))
-        date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
+        # date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
+        date = datetime.fromtimestamp(ts, UTC).strftime("%d.%m.%Y")
 
         if date not in daily:
             daily[date] = {"Date": date, "Total Fee": 0.0, "Total EUR": 0.0}

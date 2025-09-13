@@ -1,7 +1,7 @@
 # tests/test_ledger_asset_report.py
 import unittest
+from datetime import datetime, UTC, timedelta
 from unittest.mock import patch
-from datetime import datetime, timedelta
 import pandas as pd
 import sys
 import os
@@ -15,7 +15,8 @@ import ledger_asset_report as report
 class TestLedgerAssetReport(unittest.TestCase):
 
     def setUp(self):
-        self.now = datetime.utcnow()
+        # self.now = datetime.utcnow()
+        self.now = datetime.now(UTC)
         self.timestamp = self.now.timestamp()
         self.old_timestamp = (self.now - timedelta(days=10)).timestamp()
 

@@ -3,7 +3,7 @@ import os
 import logging
 import time
 import argparse
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Dict, Any, List, DefaultDict
 from collections import defaultdict
 
@@ -67,7 +67,8 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
             continue
 
         ts = float(spends[0]["_time"])
-        date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
+        date = datetime.fromtimestamp(ts, UTC).strftime("%d.%m.%Y")
+        # date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
 
         total_spent = sum(-float(s.get("amount", 0)) for s in spends)
         total_fee = sum(float(s.get("fee", 0)) for s in spends)
@@ -139,15 +140,6 @@ def update_eur_report(days: int = 7, write_csv: bool = False):
         save_eur_report(df)
     logger.info("EUR report updated")
     return df
-
-
-# def main():
-#    parser = argparse.ArgumentParser(description="Build EUR ledger report from DB")
-#    parser.add_argument("--days", type=int, default=7, help="Days to include in report")
-#    parser.add_argument("--csv", action="store_true", help="Write CSV file")
-#    args = parser.parse_args()
-
-#    update_eur_report(days=args.days, write_csv=args.csv)
 
 
 def main():
