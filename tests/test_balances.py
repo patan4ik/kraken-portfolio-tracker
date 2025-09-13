@@ -112,15 +112,19 @@ def test_main_creates_balance_and_snapshot(
     mock_api,
     mock_keyfile,
     cleanup_balances_dir,
-    tmp_path,  # ✅ Add this here
+    tmp_path,
 ):
-    balances.BALANCES_DIR = tmp_path  # override the path
-    balances.SNAPSHOTS_FILE = tmp_path / "snapshots.csv"  # override if needed
+    balances.BALANCES_DIR = tmp_path  # ✅ override the path
+    balances.SNAPSHOTS_FILE = (
+        tmp_path / "portfolio_snapshots.csv"
+    )  # ✅ must match balances.py
     balances.main()
-    # Check balance CSV created
-    # files = os.listdir(balances.BALANCES_DIR)
+
+    # balance_X.csv exists
     files = os.listdir(tmp_path)
     assert any(f.startswith("balance_") for f in files)
+
+    # snapshot file exists
     assert os.path.exists(balances.SNAPSHOTS_FILE)
     df_snap = pd.read_csv(balances.SNAPSHOTS_FILE, sep=";")
     assert not df_snap.empty
