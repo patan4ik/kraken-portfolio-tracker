@@ -4,14 +4,25 @@
 
 # Kraken Portfolio Tracker
 
-A Python tool for tracking and analyzing your Kraken portfolio and ledger history.
-It generates daily snapshots, stores transaction data in JSON and SQLite, and produces different spend reports.
+A Python tool for **offline tracking and analyzing your crypto portfolio and ledger history** on the Kraken crypto exchange.  
+The main purpose of the tool is to get a full overview of all activities on Kraken **without keeping an active API session**.  
+All data is cached locally (JSON + SQLite), and reports are generated from the local database for flexible offline analysis.
+
+It generates daily snapshots, stores transaction data in SQLite, and produces multiple reports:  
+- EUR spend report  
+- Asset acquisition report  
+- Sell operations report  
+
+---
 
 ## Overview
 
-Kraken Portfolio Tracker is designed to help you monitor your crypto holdings and transaction history on Kraken with precision and automation.
+Kraken Portfolio Tracker helps you monitor your crypto holdings and transaction history with precision and automation.  
 It supports real-time balance fetching, historical portfolio logging, and modular ledger analysis — including daily spend breakdowns and persistent storage in both CSV and SQLite formats.
-Whether you're a casual investor or a data-driven trader, this tool gives you the insights and structure to manage your Kraken activity effectively.
+
+Whether you're a casual investor or a data-driven trader, this tool gives you insights and structure to manage your Kraken activity effectively.
+
+---
 
 ## Features
 
@@ -23,19 +34,26 @@ Whether you're a casual investor or a data-driven trader, this tool gives you th
 
 ### Ledger Reporting
 - Incrementally download and cache Kraken ledger entries (`raw-ledger.json`)
-- Generate daily spend reports per asset (`ledger_eur_report.csv`)
-- Append new purchases to CSV without overwriting existing data
-- Store full ledger history in SQLite (balances_history/ledger.db)
-- Efficient updates using refid to avoid redundant API call
+- Store full ledger history in SQLite (`data/ledger.db`)
+- **Generate reports from SQLite** (faster, flexible, no API calls):
+  - **EUR report** (`ledger_eur_report.csv`) – daily EUR spent per asset
+  - **Asset report** (`ledger_asset_report.csv`) – all asset acquisitions
+  - **Sell report** (`ledger_sell_report.csv`) – sell operations with proceeds and fees
+- CLI options for each report:  
+  `python ledger_asset_report.py --days=10 --csv`
 
 ### CLI & Automation
-- Command-line flags for custom behavior: --days, --page-size, --delay-min, --delay-max
-- Compatible with cron (Linux) or Task Scheduler (Windows) for daily automation
+- Central launcher: `python start.py`
+- Command-line flags for custom behavior (`--days`, `--page-size`, etc.)
+- Compatible with cron (Linux) or Task Scheduler (Windows)
 
 ### Developer Tools
-- Modular codebase with unit tests (`pytest`) and mocks
+- Modular codebase inside `/src`
+- Unit tests (`pytest`) and mocks for offline validation
 - Clean code enforcement via Black and Ruff
 - Pre-commit hooks for automatic formatting and linting
+
+---
 
 ## Installation
 
@@ -43,19 +61,15 @@ Whether you're a casual investor or a data-driven trader, this tool gives you th
 git clone https://github.com/your-username/kraken-portfolio-tracker.git
 cd kraken-portfolio-tracker
 python -m venv .venv
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass # bypass Windows policies for VM current session
 .venv\Scripts\activate  # Windows
 pip install -r requirements.txt
-deactivate    # deactivate VM in Windows
 ```
 
 ## API Key Setup
 
-This project uses Kraken API keys stored in `kraken.key`.  
-**Important:** Replace the placeholder values with your own credentials before running the app.
+The project uses Kraken API keys stored in kraken.key.
 
-To use the Kraken API, create a file named `kraken.key` in the project root.  
-You can start by copying the example file:
+**Important:** ⚠️ Create a file named kraken.key in the project root:
 
 ```bash
 cp kraken.key.example kraken.key
@@ -66,7 +80,7 @@ Then replace the placeholder values with your actual API credentials:
 API_KEY=your_key_here
 API_SECRET=your_secret_here
 ```
-Important: Never commit your real API keys to GitHub. This file is excluded via .gitignore.
+**Important:** ⚠️ Never commit your real API keys to GitHub. This file is excluded via .gitignore.
 
 ## Git Hygiene
 
@@ -80,22 +94,26 @@ This project includes a `.gitignore` file to exclude:
 Once installed and configured, run the tracker:
 
 ```
-python balances.py
+python start.py
 ```
 This will:
-- Fetch current balances
-- Save a snapshot
+- Fetch current balances and prices
+- Save a balance snapshot
 - Update your historical CSV log
-- Load or update raw-ledger.json
-- Generate ledger_eur_report.csv with daily EUR spend per asset
-
-or schedule it via Task Scheduler (Windows) or cron (Linux) to log portfolio history daily.
+- Initialize or reuse balances_history/ledger.db
+Generate all reports from SQLite:
+- EUR spend report
+- Asset acquisition report
+- Sell operations report
 
 ## Storage
-Starting from version 0.9.2, ledger data is stored in two formats:
-- JSON file:
-- SQLite database:
-The  table in the SQLite database contains all transaction fields, including a full copy of each entry in the  column.
+Starting from v0.9.2:
+Ledger data is stored in SQLite database (balances_history/ledger.db) instead of only JSON
+The ledger table keeps all fields including a full JSON payload
+
+Starting from v0.9.3:
+All reports (EUR, Asset, Sell) are generated from SQLite instead of raw JSON
+The table in the SQLite database contains all transaction fields, including a full copy of each entry in the  column.
 
 ## Working with the Database
 To interact with the SQLite database, use the following commands:
@@ -144,8 +162,8 @@ The output will be in the dist/ folder.
 
 ## Contributing
 
-Pull requests are welcome! See CONTRIBUTING.md for details.
+✍️ Pull requests are welcome! See CONTRIBUTING.md for details.
 
 ## License
 
-This project is licensed under the MIT License.
+✍️ This project is licensed under the MIT License.
