@@ -1,3 +1,12 @@
+# tests/test_normalize_and_prices.py
+import sys
+import os
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
+
+
 def test_normalize_asset_code_variants(patch_api_and_keys):
     b = patch_api_and_keys
     assert b.normalize_asset_code("ETH") == "ETH"

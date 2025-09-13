@@ -7,6 +7,7 @@ from typing import Dict, Any
 BALANCES_DIR = "balances_history"
 RAW_LEDGER_FILE = os.path.join(BALANCES_DIR, "raw-ledger.json")
 LEDGER_DB_FILE = os.path.join(BALANCES_DIR, "ledger.db")
+DB_FILE = LEDGER_DB_FILE
 
 
 def init_db():
@@ -30,6 +31,19 @@ def init_db():
     )
     conn.commit()
     conn.close()
+
+
+def load_entries() -> Dict[str, Any]:
+    """Load ledger from JSON file (backup source)."""
+    if not os.path.exists(RAW_LEDGER_FILE):
+        return {}
+    if os.path.getsize(RAW_LEDGER_FILE) == 0:  # ✅ если файл пустой
+        return {}
+    with open(RAW_LEDGER_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
 
 
 def save_entries(entries: Dict[str, Any]):
@@ -68,9 +82,21 @@ def save_entries(entries: Dict[str, Any]):
     conn.close()
 
 
-def load_entries() -> Dict[str, Any]:
-    """Загрузить ledger из JSON (основной источник пока)."""
-    if not os.path.exists(RAW_LEDGER_FILE):
+def load_entries_from_db() -> Dict[str, Any]:
+    """Load ledger entries directly from SQLite DB instead of JSON."""
+    if not os.path.exists(LEDGER_DB_FILE):
         return {}
-    with open(RAW_LEDGER_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+
+    conn = sqlite3.connect(LEDGER_DB_FILE)
+    cur = conn.cursor()
+    cur.execute("SELECT txid, data FROM ledger")
+    rows = cur.fetchall()
+    conn.close()
+
+    entries: Dict[str, Any] = {}
+    for txid, data_json in rows:
+        try:
+            entries[txid] = json.loads(data_json)
+        except Exception:
+            entries[txid] = {"raw": data_json}
+    return entries

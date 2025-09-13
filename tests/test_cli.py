@@ -1,5 +1,10 @@
-# test_cli.py
+# tests/test_cli.py
 import sys
+import os
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 import ledger_loader
 
 

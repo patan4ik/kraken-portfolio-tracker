@@ -1,4 +1,10 @@
-# test_ledger_loader.py
+# tests/test_ledger_loader.py
+import sys
+import os
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
 from storage import save_entries, load_entries
 from ledger_loader import fetch_ledger
 

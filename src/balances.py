@@ -10,8 +10,11 @@ from tabulate import tabulate
 
 from api import KrakenAPI
 from config import load_keyfile
-from ledger_eur_report import update_eur_report
-
+import storage
+from ledger_loader import update_raw_ledger
+import ledger_eur_report
+import ledger_asset_report
+import ledger_sell_report
 
 BALANCES_DIR = "balances_history"
 SNAPSHOTS_FILE = os.path.join(BALANCES_DIR, "portfolio_snapshots.csv")
@@ -23,6 +26,32 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+
+
+# ---------------- CSV REPORTS ---------------- #
+def generate_all_reports(days: int = 7, update: bool = True):
+    """Central entrypoint: update raw ledger + regenerate all reports."""
+    if update:
+        update_raw_ledger(days=days)
+
+    entries = storage.load_entries()
+
+    # EUR report
+    df_eur = ledger_eur_report.build_eur_report(entries, days=days)
+    if not df_eur.empty:
+        ledger_eur_report.save_eur_report(df_eur)
+
+    # Asset report
+    df_asset = ledger_asset_report.build_asset_report(entries, days=days)
+    if not df_asset.empty:
+        out_asset = storage.BALANCES_DIR + "/ledger_asset_report.csv"
+        df_asset.to_csv(out_asset, sep=";", index=False, encoding="utf-8")
+
+    # Sell report
+    df_sell = ledger_sell_report.build_sell_report(entries, days=days)
+    if not df_sell.empty:
+        out_sell = storage.BALANCES_DIR + "/ledger_sell_report.csv"
+        df_sell.to_csv(out_sell, sep=";", index=False, encoding="utf-8")
 
 
 # ---------------- УТИЛИТЫ ---------------- #
@@ -265,4 +294,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    update_eur_report()
+    # update_eur_report()

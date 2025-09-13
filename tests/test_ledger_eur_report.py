@@ -1,7 +1,13 @@
-# test_ledger_eur_report.py
+# tests/test_ledger_eur_report.py
 import pandas as pd
-import storage
 import time
+import sys
+import os
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
+import storage
 from ledger_eur_report import build_eur_report
 
 now = int(time.time())

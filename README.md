@@ -4,31 +4,38 @@
 
 # Kraken Portfolio Tracker
 
-A Python tool for tracking and analyzing your Kraken portfolio and ledger history.  
-Generates CSV snapshots, computes trends, and builds daily reports of EUR spend per asset.
+A Python tool for tracking and analyzing your Kraken portfolio and ledger history.
+It generates daily snapshots, stores transaction data in JSON and SQLite, and produces different spend reports.
 
 ## Overview
 
-Kraken Portfolio Tracker helps you monitor your cryptocurrency holdings and transaction history on Kraken.  
-It supports real-time balance tracking, historical portfolio snapshots, and incremental ledger reporting.
+Kraken Portfolio Tracker is designed to help you monitor your crypto holdings and transaction history on Kraken with precision and automation.
+It supports real-time balance fetching, historical portfolio logging, and modular ledger analysis — including daily spend breakdowns and persistent storage in both CSV and SQLite formats.
+Whether you're a casual investor or a data-driven trader, this tool gives you the insights and structure to manage your Kraken activity effectively.
 
 ## Features
 
-### 📊 Portfolio Tracking
+### Portfolio Tracking
 - Fetch balances and prices from Kraken API
 - Aggregate staked and available balances
 - Save daily CSV snapshots (`portfolio_snapshots.csv`)
-- Compute portfolio trends from historical data
+- Track historical trends and portfolio evolution over time
 
-### 📁 Ledger Reporting
-- Incrementally download and cache Kraken ledger (`raw-ledger.json`)
-- Build daily EUR spend reports per asset (`ledger_eur_report.csv`)
-- Efficient refid-based updates to avoid redundant API calls
+### Ledger Reporting
+- Incrementally download and cache Kraken ledger entries (`raw-ledger.json`)
+- Generate daily spend reports per asset (`ledger_eur_report.csv`)
+- Append new purchases to CSV without overwriting existing data
+- Store full ledger history in SQLite (balances_history/ledger.db)
+- Efficient updates using refid to avoid redundant API call
 
-### 🧪 Developer Tools
-- Fully unit-tested with `pytest`
-- Code formatting with Black and linting with Ruff
-- Pre-commit hooks for clean commits
+### CLI & Automation
+- Command-line flags for custom behavior: --days, --page-size, --delay-min, --delay-max
+- Compatible with cron (Linux) or Task Scheduler (Windows) for daily automation
+
+### Developer Tools
+- Modular codebase with unit tests (`pytest`) and mocks
+- Clean code enforcement via Black and Ruff
+- Pre-commit hooks for automatic formatting and linting
 
 ## Installation
 
@@ -86,8 +93,8 @@ or schedule it via Task Scheduler (Windows) or cron (Linux) to log portfolio his
 
 ## Storage
 Starting from version 0.9.2, ledger data is stored in two formats:
-• 	JSON file:
-• 	SQLite database:
+- JSON file:
+- SQLite database:
 The  table in the SQLite database contains all transaction fields, including a full copy of each entry in the  column.
 
 ## Working with the Database

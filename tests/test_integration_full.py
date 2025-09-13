@@ -1,8 +1,13 @@
-# test_integration_full.py
-import os
+# tests/test_integration_full.py
 import pandas as pd
-import storage
 import time
+import sys
+import os
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+)
+import storage
 import ledger_eur_report
 
 now = int(time.time())
