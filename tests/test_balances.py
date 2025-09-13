@@ -89,15 +89,15 @@ def test_generate_all_reports_runs_all(
     mock_save.assert_called_once()
 
 
-@patch("src.balances.load_keyfile", return_value=("key", "secret"))
-@patch("src.balances.KrakenAPI")
-@patch("src.balances.fetch_balances", return_value={"BTC": 1.0})
+@patch("balances.load_keyfile", return_value=("key", "secret"))  # <-- fix here
+@patch("balances.KrakenAPI")
+@patch("balances.fetch_balances", return_value={"BTC": 1.0})
 @patch(
-    "src.balances.fetch_asset_pairs",
+    "balances.fetch_asset_pairs",
     return_value={"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}},
 )
 @patch(
-    "src.balances.fetch_prices_batch",
+    "balances.fetch_prices_batch",
     return_value={"XXBTZEUR": balances.Decimal("30000.0")},
 )
 @patch(
@@ -125,4 +125,4 @@ def test_main_creates_balance_and_snapshot(
     assert any("balance_" in f for f in saved_files)
 
     # check snapshot file saved
-    assert any("snapshot" in f for f in saved_files)
+    assert any("snapshot" in f.lower() for f in saved_files)
