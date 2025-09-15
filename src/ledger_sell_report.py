@@ -3,7 +3,7 @@ import argparse
 import logging
 import os
 import time
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from collections import defaultdict
 from typing import Dict, Any, List, DefaultDict
 
@@ -17,18 +17,11 @@ if not logger.handlers:
         level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
     )
 
-logger = logging.getLogger(__name__)
-if not logger.handlers:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-    )
-
-
 EUR_ASSETS = {"ZEUR", "EUR"}
 
 
 def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
-    """Aggregate sell operations: coins sold, EUR received, fee paid."""
+    """Aggregate sells (crypto → EUR)."""
     if not entries:
         return pd.DataFrame()
 
@@ -36,7 +29,6 @@ def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
     filtered = {
         txid: e for txid, e in entries.items() if float(e.get("time", 0)) >= cutoff
     }
-
     if not filtered:
         return pd.DataFrame()
 
@@ -45,57 +37,75 @@ def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         ref = e.get("refid") or txid
         groups[ref].append(e)
 
-    daily: Dict[str, Dict[str, Any]] = {}
+    daily: Dict[datetime.date, Dict[str, Any]] = {}
 
     for ref, items in groups.items():
         sells = [
-            i
-            for i in items
-            if float(i.get("amount", 0)) < 0 and i.get("asset") not in EUR_ASSETS
+            it
+            for it in items
+            if it.get("asset") not in EUR_ASSETS and float(it.get("amount", 0)) < 0
         ]
-        euros = [
-            i
-            for i in items
-            if i.get("asset") in EUR_ASSETS and float(i.get("amount", 0)) > 0
+        eur = [
+            it
+            for it in items
+            if it.get("asset") in EUR_ASSETS and float(it.get("amount", 0)) > 0
         ]
-        if not sells or not euros:
+
+        if not sells or not eur:
             continue
 
-        ts = float(sells[0].get("time", 0))
-        # date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
-        date = datetime.fromtimestamp(ts, UTC).strftime("%d.%m.%Y")
+        first = sells[0]
+        if first.get("date"):
+            date_obj = datetime.fromisoformat(first["date"]).date()
+        else:
+            ts = float(first.get("time", 0))
+            date_obj = datetime.fromtimestamp(ts, tz=timezone.utc).date()
 
-        if date not in daily:
-            daily[date] = {"Date": date, "Total Fee": 0.0, "Total EUR": 0.0}
+        if date_obj not in daily:
+            daily[date_obj] = {"Date": date_obj, "Total EUR": 0.0, "Total Fee": 0.0}
+        daily_row = daily[date_obj]
 
-        row = daily[date]
+        total_fee = sum(float(s.get("fee", 0)) for s in sells)
+        total_eur = sum(float(r.get("amount", 0)) for r in eur)
 
+        daily_row["Total Fee"] += total_fee
+        daily_row["Total EUR"] += total_eur
         for s in sells:
             asset = s.get("asset")
             amt = abs(float(s.get("amount", 0)))
-            fee = float(s.get("fee", 0))
-            row[asset] = row.get(asset, 0.0) + amt
-            row["Total Fee"] = row.get("Total Fee", 0.0) + fee
+            daily_row[asset] = daily_row.get(asset, 0.0) + amt
 
-        for e in euros:
-            eur_amt = float(e.get("amount", 0))
-            row["Total EUR"] = row.get("Total EUR", 0.0) + eur_amt
+    if not daily:
+        return pd.DataFrame()
 
     rows = list(daily.values())
     df = pd.DataFrame(rows)
-    df = df.fillna(0.0)
+
+    assets = sorted(
+        [c for c in df.columns if c not in {"Date", "Total EUR", "Total Fee"}]
+    )
+    ordered_cols = ["Date", "Total EUR", "Total Fee"] + assets
+    df = df.reindex(columns=ordered_cols).fillna(0.0)
 
     if "Date" in df.columns:
-        df["__sort_dt"] = pd.to_datetime(df["Date"], format="%d.%m.%Y", errors="coerce")
-        df.sort_values("__sort_dt", inplace=True)
-        df.drop(columns="__sort_dt", inplace=True)
+        df["Date"] = pd.to_datetime(df["Date"])
+        df.sort_values("Date", inplace=True)
+        df.reset_index(drop=True, inplace=True)
+
+    df["Total EUR"] = df["Total EUR"].round(2)
+    df["Total Fee"] = df["Total Fee"].round(2)
+    for a in assets:
+        df[a] = df[a].round(8)
 
     return df
 
 
 def save_sell_report(df: pd.DataFrame):
     os.makedirs(storage.BALANCES_DIR, exist_ok=True)
-    df.to_csv(LEDGER_SELL_FILE, sep=";", index=False, encoding="utf-8")
+    out = df.copy()
+    if "Date" in out.columns:
+        out["Date"] = pd.to_datetime(out["Date"]).dt.strftime("%d.%m.%Y")
+    out.to_csv(LEDGER_SELL_FILE, sep=";", index=False, encoding="utf-8")
     logger.info(f"SELL report saved to {LEDGER_SELL_FILE}")
 
 
@@ -103,12 +113,12 @@ def update_sell_report(days: int = 7, write_csv: bool = False):
     entries = storage.load_entries_from_db()
     if not entries:
         logger.warning("No data for SELL report")
-        return
+        return pd.DataFrame()
 
     df = build_sell_report(entries, days=days)
     if df.empty:
         logger.warning("SELL report is empty")
-        return
+        return df
 
     if write_csv:
         save_sell_report(df)
@@ -122,7 +132,6 @@ def main():
     parser.add_argument("--csv", action="store_true", help="Export to CSV")
     args = parser.parse_args()
 
-    # entries = storage.load_entries() # backup menthod from JSON jile
     entries = storage.load_entries_from_db()
     df = build_sell_report(entries, days=args.days)
 
@@ -131,10 +140,7 @@ def main():
         return
 
     if args.csv:
-        out = os.path.join(storage.BALANCES_DIR, "ledger_sell_report.csv")
-        os.makedirs(storage.BALANCES_DIR, exist_ok=True)
-        df.to_csv(out, sep=";", index=False, encoding="utf-8")
-        logger.info(f"Sell report saved to {out}")
+        save_sell_report(df)
     else:
         print(df)
 

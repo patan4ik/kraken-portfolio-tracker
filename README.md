@@ -67,19 +67,33 @@ pip install -r requirements.txt
 
 ## API Key Setup
 
-The project uses Kraken API keys stored in kraken.key.
+The project uses Kraken API keys that you need copy-paste from kraken.com.
 
-**Important:** ⚠️ Create a file named kraken.key in the project root:
 
-```bash
-cp kraken.key.example kraken.key
+
+```
+python start.py --setup-keys
 ```
 
+This securely saves your Kraken API key/secret in the system keyring.
+Alternatively, you can still:
+**Important:** ⚠️ Create a file named kraken.key in the project root folder.
+Create a kraken.key file with two lines (API_KEY and SECRET), or
+```
+cp kraken.key.example kraken.key
+```
 Then replace the placeholder values with your actual API credentials:
 ```
 API_KEY=your_key_here
 API_SECRET=your_secret_here
 ```
+Set environment variables:
+Then replace the placeholder values with your actual API credentials:
+```bash
+export KRAKEN_API_KEY=yourkey
+export KRAKEN_API_SECRET=yoursecret
+```
+
 **Important:** ⚠️ Never commit your real API keys to GitHub. This file is excluded via .gitignore.
 
 ## Git Hygiene
@@ -91,7 +105,7 @@ This project includes a `.gitignore` file to exclude:
 
 ## Getting Started
 
-Once installed and configured, run the tracker:
+Once installed and configured api key, run the tracker:
 
 ```
 python start.py
@@ -106,6 +120,20 @@ Generate all reports from SQLite:
 - EUR spend report
 - Asset acquisition report
 - Sell operations report
+
+## Usage
+
+Fetch and update DB:
+```
+python start.py --update-ledger
+```
+
+Generate reports:
+```bash
+python src/ledger_eur_report.py --days 30 --csv
+python src/ledger_asset_report.py --days 30 --csv
+python src/ledger_sell_report.py --days 30 --csv
+```
 
 ## Storage
 Starting from v0.9.2:

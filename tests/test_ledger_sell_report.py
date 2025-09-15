@@ -85,11 +85,12 @@ class TestLedgerSellReport(unittest.TestCase):
         mock_makedirs.assert_called_once_with("mock_dir", exist_ok=True)
         mock_to_csv.assert_called_once()
 
-    @patch("ledger_sell_report.storage.load_entries_from_db")
-    def test_update_sell_report_no_entries(self, mock_load):
-        mock_load.return_value = {}
-        result = report.update_sell_report()
-        self.assertIsNone(result)
+        @patch("ledger_sell_report.storage.load_entries_from_db")
+        def test_update_sell_report_no_entries(mock_load):
+            mock_load.return_value = {}
+            result = report.update_sell_report()
+            assert isinstance(result, pd.DataFrame)
+            assert result.empty
 
     @patch("ledger_sell_report.save_sell_report")
     @patch("ledger_sell_report.storage.load_entries_from_db")
@@ -105,7 +106,9 @@ class TestLedgerSellReport(unittest.TestCase):
             "tx": {"time": self.old_ts, "amount": "-1", "asset": "BTC"}
         }
         result = report.update_sell_report()
-        self.assertIsNone(result)
+        assert isinstance(result, pd.DataFrame)
+        assert result.empty  # instead of self.assertIsNone(result)
+        # self.assertIsNone(result)
 
 
 if __name__ == "__main__":

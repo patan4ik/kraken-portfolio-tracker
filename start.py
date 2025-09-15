@@ -2,6 +2,7 @@
 import logging
 import os
 import sys
+import argparse
 
 # добавляем src в PYTHONPATH
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -12,6 +13,8 @@ import ledger_eur_report
 import ledger_asset_report
 import ledger_sell_report
 import balances
+import keys  # <--- NEW
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -19,7 +22,28 @@ logging.basicConfig(
 )
 
 
+def setup_keys():
+    """Interactive setup for Kraken API keys."""
+    logger.info("🔑 Starting Kraken API key setup...")
+    keys.save_keyfile()
+    logger.info("✅ Kraken API keys saved. You can now run the app normally.")
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Kraken Portfolio Tracker")
+    parser.add_argument(
+        "--setup-keys",
+        action="store_true",
+        help="Interactive setup to save Kraken API keys locally",
+    )
+
+    # Allow pytest/other tools to pass extra args without breaking
+    args, _ = parser.parse_known_args()
+
+    if args.setup_keys:
+        setup_keys()
+        return
+
     logger.info("🚀 Kraken Portfolio Tracker initialization started")
 
     # 1. Отображаем текущий портфель (если ключи Kraken работают — пользователь это сразу увидит)
@@ -42,18 +66,14 @@ def main():
             logger.info(
                 "💡 No valid raw-ledger.json or ledger.db found. Downloading raw ledger from Kraken..."
             )
-            ledger_loader.update_raw_ledger(
-                days=10
-            )  # год истории days=365 will trigger [API ERROR] ['EAPI:Rate limit exceeded'] (попытка 1/5)
+            ledger_loader.update_raw_ledger(days=30)
             logger.info("Ledger downloaded. Creating SQLite DB...")
             storage.init_db()
     else:
         logger.info(
             "💡 No valid raw-ledger.json or ledger.db found. Downloading raw ledger from Kraken..."
         )
-        ledger_loader.update_raw_ledger(
-            days=10
-        )  # год истории days=365 will trigger [API ERROR] ['EAPI:Rate limit exceeded'] (попытка 1/5)
+        ledger_loader.update_raw_ledger(days=30)
         logger.info("Ledger downloaded. Creating SQLite DB...")
         storage.init_db()
 

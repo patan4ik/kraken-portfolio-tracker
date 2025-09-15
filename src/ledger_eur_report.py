@@ -3,9 +3,9 @@ import os
 import logging
 import time
 import argparse
-from datetime import datetime, UTC
 from typing import Dict, Any, List, DefaultDict
 from collections import defaultdict
+from datetime import datetime, timezone
 
 import pandas as pd
 import storage
@@ -20,8 +20,13 @@ if not logger.handlers:
 EUR_ASSETS = {"ZEUR", "EUR"}
 
 
+# ledger_eur_report.py (relevant parts)
+
+# ... other imports and constants remain
+
+
 def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
-    """Build report of EUR spent per asset grouped by date."""
+    """Build a DataFrame where Date is a real datetime (not string)."""
     if not entries:
         return pd.DataFrame()
 
@@ -49,7 +54,8 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         ref = e.get("refid") or txid
         groups[ref].append(e)
 
-    daily: Dict[str, Dict[str, Any]] = {}
+    # accumulate per date (use datetime.date objects as keys)
+    daily: Dict[datetime.date, Dict[str, Any]] = {}
 
     for ref, items in groups.items():
         spends = [
@@ -66,9 +72,13 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         if not spends or not receives:
             continue
 
-        ts = float(spends[0]["_time"])
-        date = datetime.fromtimestamp(ts, UTC).strftime("%d.%m.%Y")
-        # date = datetime.utcfromtimestamp(ts).strftime("%d.%m.%Y")
+        # Prefer canonical date (from DB) if present, else compute from timestamp (UTC)
+        first_spend = spends[0]
+        if first_spend.get("date"):
+            date_obj = datetime.fromisoformat(first_spend["date"]).date()
+        else:
+            ts = float(first_spend["_time"])
+            date_obj = datetime.fromtimestamp(ts, tz=timezone.utc).date()
 
         total_spent = sum(-float(s.get("amount", 0)) for s in spends)
         total_fee = sum(float(s.get("fee", 0)) for s in spends)
@@ -87,9 +97,13 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
             first_asset = receives[0].get("asset")
             alloc[first_asset] = alloc.get(first_asset, 0.0) + total_spent
 
-        if date not in daily:
-            daily[date] = {"Date": date, "Total Fee": 0.0, "Total Spent EUR": 0.0}
-        daily_row = daily[date]
+        if date_obj not in daily:
+            daily[date_obj] = {
+                "Date": date_obj,
+                "Total Fee": 0.0,
+                "Total Spent EUR": 0.0,
+            }
+        daily_row = daily[date_obj]
         daily_row["Total Fee"] += total_fee
         daily_row["Total Spent EUR"] += total_spent
         for asset, eur_val in alloc.items():
@@ -107,10 +121,12 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
     ordered_cols = ["Date", "Total Fee", "Total Spent EUR"] + assets
     df = df.reindex(columns=ordered_cols).fillna(0.0)
 
-    df["__sort_dt"] = pd.to_datetime(df["Date"], format="%d.%m.%Y", errors="coerce")
-    df.sort_values("__sort_dt", inplace=True)
-    df.drop(columns="__sort_dt", inplace=True)
+    # Ensure Date is datetime (not string), sort by it
+    df["Date"] = pd.to_datetime(df["Date"])
+    df.sort_values("Date", inplace=True)
+    df.reset_index(drop=True, inplace=True)
 
+    # numeric rounding
     df["Total Fee"] = df["Total Fee"].round(2)
     df["Total Spent EUR"] = df["Total Spent EUR"].round(2)
     for a in assets:
@@ -121,7 +137,11 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
 
 def save_eur_report(df: pd.DataFrame):
     os.makedirs(storage.BALANCES_DIR, exist_ok=True)
-    df.to_csv(LEDGER_EUR_FILE, sep=";", index=False, encoding="utf-8")
+    # copy and format Date for human CSV
+    out = df.copy()
+    if "Date" in out.columns:
+        out["Date"] = pd.to_datetime(out["Date"]).dt.strftime("%d.%m.%Y")
+    out.to_csv(LEDGER_EUR_FILE, sep=";", index=False, encoding="utf-8")
     logger.info(f"EUR report saved to {LEDGER_EUR_FILE}")
 
 
@@ -129,12 +149,12 @@ def update_eur_report(days: int = 7, write_csv: bool = False):
     entries = storage.load_entries_from_db()
     if not entries:
         logger.warning("No data for EUR report")
-        return
+        return pd.DataFrame()
 
     df = build_eur_report(entries, days=days)
     if df.empty:
         logger.warning("EUR report is empty")
-        return
+        return df
 
     if write_csv:
         save_eur_report(df)
@@ -154,7 +174,7 @@ def main():
 
     if df.empty:
         logger.warning("No data for asset report")
-        return
+        return df  # instead of just `return`
 
     if args.csv:
         out = os.path.join(storage.BALANCES_DIR, "ledger_eur_report.csv")

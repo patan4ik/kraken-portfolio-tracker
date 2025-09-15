@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.9.4] - 2025-09-15
+
+### Added
+- `keys.py`: new secure method to store Kraken API credentials (via system keyring).
+- CLI helper: `python start.py --setup-keys` for easy key setup.
+
+### Changed
+- Reports now use **dates from DB** (ISO format) instead of recalculating from timestamps.
+- Reports consistently return `pd.DataFrame` (empty instead of `None`).
+- Fallback logic for API keys:
+  1. Secure storage
+  2. File (`kraken.key`)
+  3. Environment variables
+  4. Clear error message
+
+### Fixed
+- Date sorting and formatting issues in EUR/Asset/Sell reports.
+- Lint error: replaced ambiguous variable `l` with `line` in `keys.py`.
+- All related unit tests
+
+
 ## [0.9.3] - 2025-09-13
 ### Added
 - Introduced **`start.py`** as a central launcher for portfolio tracking and report generation
