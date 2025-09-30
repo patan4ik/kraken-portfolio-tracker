@@ -68,16 +68,13 @@ pip install -r requirements.txt
 ## API Key Setup
 
 The project uses Kraken API keys that you need copy-paste from kraken.com.
-
-
-
 ```
 python start.py --setup-keys
 ```
 
-This securely saves your Kraken API key/secret in the system keyring.
-Alternatively, you can still:
-**Important:** ⚠️ Create a file named kraken.key in the project root folder.
+(RECOMENDED) This securely saves your Kraken API key/secret in the system keyring.
+
+Alternatively, you can still: **Important:** ⚠️ Create a file named kraken.key in the project root folder.
 Create a kraken.key file with two lines (API_KEY and SECRET), or
 ```
 cp kraken.key.example kraken.key

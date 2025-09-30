@@ -22,7 +22,7 @@ def test_cli_respects_days_and_page_size(monkeypatch, tmp_path, capsys):
 
     # Patch KrakenAPI and load_keyfile
     monkeypatch.setattr("ledger_loader.KrakenAPI", lambda key, secret: fake_api)
-    monkeypatch.setattr("ledger_loader.load_keyfile", lambda: ("dummy", "dummy"))
+    monkeypatch.setattr("ledger_loader.load_keys", lambda: ("dummy", "dummy"))
 
     # Patch storage path
     monkeypatch.setattr("ledger_loader.BALANCES_DIR", str(tmp_path))

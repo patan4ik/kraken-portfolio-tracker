@@ -11,70 +11,118 @@ _SERVICE = f"{APP_NAME}-kraken-api"
 
 DATA_DIR = user_data_dir(APP_NAME)
 os.makedirs(DATA_DIR, exist_ok=True)
-KEYFILE = os.path.join(DATA_DIR, "kraken.key")  # encrypted JSON or plainlines
+
+KEYFILE = os.path.join(DATA_DIR, "kraken.key")  # encrypted API keys
+MASTER_FILE = os.path.join(DATA_DIR, ".master")  # local master key backup
+
+
+class KeysError(Exception):
+    """Raised when API keys are missing or invalid."""
+
+    pass
+
+
+# ---------------- Master Key Management ---------------- #
 
 
 def _derive_master_key_from_keyring() -> Optional[bytes]:
-    """Try to get a master key from OS keyring; if not present return None."""
+    """Try to fetch master key from system keyring."""
     val = keyring.get_password(_SERVICE, "master")
-    if val:
+    if not val:
+        return None
+    try:
+        Fernet(val.encode("utf-8"))  # validate
         return val.encode("utf-8")
-    return None
+    except Exception:
+        return None
 
 
 def _store_master_key_in_keyring(key: bytes):
+    """Store master key in keyring."""
     keyring.set_password(_SERVICE, "master", key.decode("utf-8"))
 
 
-def _prompt_and_create_master_key() -> bytes:
-    # Generate new master key (Fernet) and store in keyring if possible
-    new_key = Fernet.generate_key()
-    try:
-        _store_master_key_in_keyring(new_key)
-    except Exception:
-        # If keyring fails (headless), fallback to writing the key to a local file with restricted permissions
-        keypath = os.path.join(DATA_DIR, ".master")
-        with open(keypath, "wb") as f:
+def _store_master_key_in_file(key: bytes):
+    """Store master key in .master file (0600 permissions)."""
+    with open(MASTER_FILE, "wb") as f:
+        try:
             os.fchmod(f.fileno(), 0o600)
-            f.write(new_key)
-    return new_key
+        except AttributeError:
+            pass  # Windows doesn't support fchmod
+        f.write(key)
+
+
+def _load_master_key_from_file() -> Optional[bytes]:
+    """Load master key from local .master file."""
+    if os.path.exists(MASTER_FILE):
+        mk = open(MASTER_FILE, "rb").read()
+        try:
+            Fernet(mk)  # validate
+            return mk
+        except Exception:
+            raise KeysError("❌ Corrupted master key file (.master)")
+    return None
+
+
+def _get_master_key() -> bytes:
+    """
+    Get the Fernet master key.
+    Priority:
+      1. Keyring
+      2. .master file
+      3. Generate new -> store in both
+    """
+    # 1. Keyring
+    mk = _derive_master_key_from_keyring()
+    if mk:
+        return mk
+
+    # 2. Local file
+    mk = _load_master_key_from_file()
+    if mk:
+        return mk
+
+    # 3. Generate new key and store in both
+    mk = Fernet.generate_key()
+    try:
+        _store_master_key_in_keyring(mk)
+    except Exception:
+        # fallback only .master
+        _store_master_key_in_file(mk)
+    else:
+        # also keep backup file
+        _store_master_key_in_file(mk)
+
+    return mk
 
 
 def _get_fernet() -> Fernet:
-    mk = _derive_master_key_from_keyring()
-    if mk is None:
-        # try local file
-        local_keyfile = os.path.join(DATA_DIR, ".master")
-        if os.path.exists(local_keyfile):
-            mk = open(local_keyfile, "rb").read()
-        else:
-            mk = _prompt_and_create_master_key()
-    return Fernet(mk)
+    """Return a Fernet instance bound to the master key."""
+    return Fernet(_get_master_key())
+
+
+# ---------------- API Keys Management ---------------- #
 
 
 def save_keys(api_key: str, api_secret: str):
-    """
-    Save keys encrypted (preferred) and also store a small hint in keyring.
-    """
+    """Encrypt and save Kraken API keys securely."""
     f = _get_fernet()
     payload = json.dumps({"api_key": api_key, "api_secret": api_secret}).encode("utf-8")
     token = f.encrypt(payload)
+
     with open(KEYFILE, "wb") as fh:
-        os.fchmod(fh.fileno(), 0o600)
+        try:
+            os.fchmod(fh.fileno(), 0o600)
+        except AttributeError:
+            pass
         fh.write(token)
-    # Optionally store last-used username in keyring as metadata (not secrets)
+
     keyring.set_password(_SERVICE, "saved", "1")
 
 
 def load_keys() -> Tuple[str, str]:
-    """
-    Load keys: tries keyring -> encrypted file -> legacy plain kraken.key in repo root.
-    Raises RuntimeError with user friendly instructions.
-    """
-    # 1) Try keyring username/secret (rare, keyring usually stores single password, so better to use file)
-    # Here we expect keyring usage for master key, not API keys
-
-    # 2) Try encrypted KEYFILE
+    """Load Kraken API keys from encrypted file, legacy file, or env vars."""
+    # 1. Encrypted keyfile
     if os.path.exists(KEYFILE):
         try:
             token = open(KEYFILE, "rb").read()
@@ -83,11 +131,12 @@ def load_keys() -> Tuple[str, str]:
             dd = json.loads(raw.decode("utf-8"))
             return dd["api_key"], dd["api_secret"]
         except Exception:
-            raise RuntimeError(
-                "Encrypted kraken.key exists but cannot be decrypted. Maybe master key missing or corrupted."
+            raise KeysError(
+                "❌ Encrypted kraken.key exists but cannot be decrypted. "
+                "Master key missing or corrupted."
             )
 
-    # 3) Legacy: kraken.key in CWD (two-line plain text) — only as last resort
+    # 2. Legacy plain text file
     legacy = os.path.join(os.getcwd(), "kraken.key")
     if os.path.exists(legacy):
         with open(legacy, "r", encoding="utf-8") as f:
@@ -95,9 +144,28 @@ def load_keys() -> Tuple[str, str]:
         if len(lines) >= 2:
             return lines[0], lines[1]
 
-    # No keys found — instruct the user
-    raise RuntimeError(
-        "API keys not found. Create keys using the UI or place encrypted keys at: "
-        f"{KEYFILE} or put a two-line kraken.key in the current directory.\n"
-        "To save keys securely use the included helper: python -c \"from keys import save_keys; save_keys('API_KEY','API_SECRET')\""
+    # 3. Environment variables
+    api_key = os.getenv("KRAKEN_API_KEY")
+    api_secret = os.getenv("KRAKEN_API_SECRET")
+    if api_key and api_secret:
+        return api_key, api_secret
+
+    # Nothing found
+    raise KeysError(
+        "❌ Kraken API keys not found.\n"
+        "1) Run: python start.py --setup-keys   (recommended)\n"
+        "2) Or store them securely using keys.py helper:\n"
+        "   python -c \"from keys import save_keys; save_keys('API_KEY','API_SECRET')\"\n"
+        "3) Or create a file kraken.key with two lines: <API key> and <API secret>\n"
+        "4) Or set environment variables KRAKEN_API_KEY and KRAKEN_API_SECRET\n"
+        "After that, restart the script."
     )
+
+
+def keys_exist() -> bool:
+    """Return True if API keys can be loaded, else False."""
+    try:
+        load_keys()
+        return True
+    except Exception:
+        return False

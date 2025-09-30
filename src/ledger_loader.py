@@ -8,13 +8,14 @@ from typing import Dict, Any, Optional
 
 from api import KrakenAPI
 from config import (
-    load_keyfile,
     DEFAULT_PAGE_SIZE,
     DEFAULT_DAYS,
     DEFAULT_DELAY_MIN,
     DEFAULT_DELAY_MAX,
 )
+from keys import load_keys
 from storage import save_entries, load_entries
+
 
 BALANCES_DIR = "balances_history"
 
@@ -74,7 +75,7 @@ def update_raw_ledger(
 ):
     """Обновить данные леджера и сохранить в JSON + SQLite."""
     if api is None:
-        api_key, api_secret = load_keyfile()
+        api_key, api_secret = load_keys()
         api = KrakenAPI(api_key, api_secret)
 
     entries = fetch_ledger(api, days, page_size, delay_min, delay_max)
@@ -114,7 +115,7 @@ def main():
     )
     args = parser.parse_args()
 
-    api_key, api_secret = load_keyfile()
+    api_key, api_secret = load_keys()
     api = KrakenAPI(api_key, api_secret)
 
     update_raw_ledger(

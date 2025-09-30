@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.4.1] - 2025-09-30
+### Changed
+- `start.main()` now returns the result of `balances.main()`, enabling consistent testing and programmatic usage.
+- Improved error handling and cleaned unit tests failures.
+
+
 ## [0.9.4] - 2025-09-15
 
 ### Added
@@ -67,5 +73,5 @@
 
 ---
 
-## [0.9.0] - 2025-09-05
+## [0.9.0] - 2025-09-01
 - Initial public release

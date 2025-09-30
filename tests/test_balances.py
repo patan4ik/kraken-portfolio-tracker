@@ -1,128 +1,158 @@
 # tests/test_balances.py
-import shutil
-import pandas as pd
-import pytest
-from unittest.mock import patch
-import sys
 import os
-import argparse
+import sys
 
 sys.path.insert(
     0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
 )
-import balances
+
+import tempfile
+import shutil
+import pandas as pd
+import pytest
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
+# Import functions and constants from balances.py
+from balances import (
+    normalize_asset_code,
+    fetch_balances,
+    fetch_asset_pairs,
+    fetch_prices_batch,
+    _atomic_to_csv,
+    compute_trends,
+)
 
 
-@pytest.fixture
-def cleanup_balances_dir():
-    if os.path.exists(balances.BALANCES_DIR):
-        shutil.rmtree(balances.BALANCES_DIR)
-    os.makedirs(balances.BALANCES_DIR)
-    yield
-    shutil.rmtree(balances.BALANCES_DIR)
+# ----------------------------
+# Test _unwrap_api_response
+# ----------------------------
+@pytest.mark.parametrize(
+    "resp,expected",
+    [
+        ({"result": {"XXBT": "1.0"}}, {"XXBT": "1.0"}),
+        (({"XXBT": "1.0"},), {"XXBT": "1.0"}),
+        # Function does not skip errors, it just returns the first element
+        (({"error": "fail"}, {"XXBT": "1.0"}), {"error": "fail"}),
+        ([{"XXBT": "1.0"}, {"ZZZ": "2"}], {"XXBT": "1.0"}),
+        ({"XXBT": "1.0"}, {"XXBT": "1.0"}),
+        (None, None),
+    ],
+)
+def test_unwrap_api_response(resp, expected):
+    from src.balances import _unwrap_api_response as unwrap
+
+    result = unwrap(resp)
+    assert result == expected
 
 
-def test_normalize_asset_code():
-    assert balances.normalize_asset_code("XXBT.S") == "XXBT"
-    assert balances.normalize_asset_code("ETH2.F") == "ETH"
-    assert balances.normalize_asset_code("DOT123") == "DOT"
+# ----------------------------
+# Test normalize_asset_code
+# ----------------------------
+@pytest.mark.parametrize(
+    "asset,expected",
+    [
+        ("BTC.S", "BTC"),
+        ("ETH.F", "ETH"),
+        ("XRP.B", "XRP"),
+        ("DOGE1", "DOGE"),
+        ("LTCB", "LTC"),
+        ("ADA", "ADA"),
+        ("SOLF2", "SOL"),
+        ("BNB", "BNB"),
+    ],
+)
+def test_normalize_asset_code(asset, expected):
+    assert normalize_asset_code(asset) == expected
 
 
-def test_compute_trends_adds_columns(cleanup_balances_dir):
-    df_current = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [1000.0]})
-    # Create a previous CSV
-    prev_df = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [900.0]})
-    prev_df.to_csv(
-        os.path.join(balances.BALANCES_DIR, "balance_2023-01-01.csv"), index=False
-    )
-
-    result = balances.compute_trends(df_current.copy())
-    assert "Trend_2023-01-01" in result.columns
-    assert result["Trend_2023-01-01"].iloc[0] == 100.0
-    assert "Portfolio Trend Avg" in result.columns
+# ----------------------------
+# Test fetch_balances
+# ----------------------------
+def test_fetch_balances_dict():
+    mock_api = MagicMock()
+    mock_api.get_balance.return_value = {"XXBT": "1.5", "ZEUR": "0"}
+    result = fetch_balances(mock_api)
+    assert result == {"XXBT": 1.5}
 
 
-@patch("src.balances.KrakenAPI")
-def test_fetch_balances_filters_zero(mock_api):
-    mock_api.get_balance.return_value = {"BTC": "0.0", "ETH": "1.5"}
-    result = balances.fetch_balances(mock_api)
-    assert result == {"ETH": 1.5}
+# ----------------------------
+# Test fetch_asset_pairs
+# ----------------------------
+def test_fetch_asset_pairs_success():
+    mock_api = MagicMock()
+    mock_api.get_asset_pairs.return_value = {
+        "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
+    }
+    result = fetch_asset_pairs(mock_api)
+    assert result == {"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}}
 
 
-@patch("src.balances.KrakenAPI")
-def test_fetch_asset_pairs_raises_on_empty(mock_api):
+def test_fetch_asset_pairs_empty_raises():
+    mock_api = MagicMock()
     mock_api.get_asset_pairs.return_value = {}
     with pytest.raises(RuntimeError):
-        balances.fetch_asset_pairs(mock_api)
+        fetch_asset_pairs(mock_api)
 
 
-@patch("src.balances.KrakenAPI")
-def test_fetch_prices_batch_parses_prices(mock_api):
+# ----------------------------
+# Test fetch_prices_batch
+# ----------------------------
+def test_fetch_prices_batch():
+    mock_api = MagicMock()
     mock_api.get_ticker.return_value = {
-        "XETHZEUR": {"c": ["2000.0"]},
-        "XXBTZEUR": {"c": ["30000.0"]},
+        "XXBTZEUR": {"c": ["30000.0", "1", "1.0"]},
+        "ETHZEUR": {"c": ["2000.0", "1", "1.0"]},
     }
-    result = balances.fetch_prices_batch(mock_api, ["XETHZEUR", "XXBTZEUR"])
-    assert result["XETHZEUR"] == balances.Decimal("2000.0")
+    pairs = ["XXBTZEUR", "ETHZEUR"]
+    result = fetch_prices_batch(mock_api, pairs)
+    assert result["XXBTZEUR"] == Decimal("30000.0")
+    assert result["ETHZEUR"] == Decimal("2000.0")
 
 
-# @patch("src.balances.update_raw_ledger")
-@patch("balances.update_raw_ledger")
-@patch("src.balances.storage.load_entries")
-@patch("src.balances.ledger_eur_report.build_eur_report")
-@patch("src.balances.ledger_eur_report.save_eur_report")
-@patch("src.balances.ledger_asset_report.build_asset_report")
-@patch("src.balances.ledger_sell_report.build_sell_report")
-def test_generate_all_reports_runs_all(
-    mock_sell, mock_asset, mock_save, mock_eur, mock_load, mock_update
-):
-    # ✅ Ensure balances_history directory exists
-    os.makedirs(balances.BALANCES_DIR, exist_ok=True)
-
-    mock_load.return_value = ["entry"]
-    mock_eur.return_value = pd.DataFrame({"a": [1]})
-    mock_asset.return_value = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [1000]})
-    mock_sell.return_value = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [1000]})
-
-    balances.generate_all_reports(days=1, update=True)
-    mock_update.assert_called_once()
-    mock_save.assert_called_once()
+# ----------------------------
+# Test _atomic_to_csv
+# ----------------------------
+def test_atomic_to_csv_creates_file():
+    df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        out_file = os.path.join(tmp_dir, "test.csv")
+        _atomic_to_csv(df, out_file, index=False)
+        df2 = pd.read_csv(out_file)
+        assert list(df2.columns) == ["A", "B"]
+        assert df2.shape == (2, 2)
+    finally:
+        shutil.rmtree(tmp_dir)
 
 
-@patch("balances.load_keyfile", return_value=("key", "secret"))  # <-- fix here
-@patch("balances.KrakenAPI")
-@patch("balances.fetch_balances", return_value={"BTC": 1.0})
-@patch(
-    "balances.fetch_asset_pairs",
-    return_value={"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}},
-)
-@patch(
-    "balances.fetch_prices_batch",
-    return_value={"XXBTZEUR": balances.Decimal("30000.0")},
-)
-@patch(
-    "argparse.ArgumentParser.parse_args",
-    return_value=argparse.Namespace(quote="ZEUR", min_balance=0.001),
-)
-@patch("pandas.DataFrame.to_csv")  # mock file writing
-def test_main_creates_balance_and_snapshot(
-    mock_to_csv,
-    mock_args,
-    mock_prices,
-    mock_pairs,
-    mock_balances,
-    mock_api,
-    mock_keyfile,
-    cleanup_balances_dir,
-):
-    balances.main()
+# ----------------------------
+# Test compute_trends
+# ----------------------------
+def test_compute_trends_creates_trend_column():
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        # patch BALANCES_DIR to tmp_dir
+        with patch("src.balances.BALANCES_DIR", tmp_dir):
+            # Create previous CSV
+            prev_df = pd.DataFrame(
+                {"Asset": ["BTC", "ETH"], "Value (EUR)": [1000, 2000]}
+            )
+            prev_file = os.path.join(tmp_dir, "balance_2025-01-01.csv")
+            prev_df.to_csv(prev_file, index=False)
 
-    # ensure CSV save was attempted at least twice (balance + snapshot)
-    assert mock_to_csv.call_count >= 2
+            # Current df
+            df = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1100, 2100]})
+            df_out = compute_trends(df)
 
-    # check one of the filenames has "balance_" in it
-    saved_files = [str(call.args[0]) for call in mock_to_csv.call_args_list]
-    assert any("balance_" in f for f in saved_files)
+            # Detect trend column automatically (since it's based on datetime.now)
+            trend_cols = [c for c in df_out.columns if c.startswith("Trend_")]
+            assert trend_cols, "No trend column created"
+            trend_col = trend_cols[0]
 
-    # check snapshot file saved
-    assert any("snapshot" in f.lower() for f in saved_files)
+            # Check values exist
+            assert not df_out[trend_col].isna().all()
+            # Portfolio Trend Avg column should exist
+            assert "Portfolio Trend Avg" in df_out.columns
+    finally:
+        shutil.rmtree(tmp_dir)

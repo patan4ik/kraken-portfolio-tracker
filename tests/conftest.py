@@ -97,7 +97,5 @@ def patch_api_and_keys(monkeypatch, patch_datetime):
     """
     balances = patch_datetime
     monkeypatch.setattr(balances, "KrakenAPI", MockKrakenAPI, raising=True)
-    monkeypatch.setattr(
-        balances, "load_keyfile", lambda: ("KEY", "SECRET"), raising=True
-    )
+    monkeypatch.setattr(balances, "load_keys", lambda: ("KEY", "SECRET"), raising=True)
     return balances
