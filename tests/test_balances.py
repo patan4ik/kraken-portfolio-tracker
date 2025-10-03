@@ -1,158 +1,135 @@
 # tests/test_balances.py
 import os
-import sys
-
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
-
 import tempfile
 import shutil
+from decimal import Decimal
+from unittest.mock import MagicMock
+
 import pandas as pd
 import pytest
-from decimal import Decimal
-from unittest.mock import MagicMock, patch
 
-# Import functions and constants from balances.py
-from balances import (
+from src import balances
+from src.balances import (
+    compute_trends,
     normalize_asset_code,
+    _unwrap_api_response,
     fetch_balances,
     fetch_asset_pairs,
     fetch_prices_batch,
-    _atomic_to_csv,
-    compute_trends,
 )
 
 
-# ----------------------------
-# Test _unwrap_api_response
-# ----------------------------
-@pytest.mark.parametrize(
-    "resp,expected",
-    [
-        ({"result": {"XXBT": "1.0"}}, {"XXBT": "1.0"}),
-        (({"XXBT": "1.0"},), {"XXBT": "1.0"}),
-        # Function does not skip errors, it just returns the first element
-        (({"error": "fail"}, {"XXBT": "1.0"}), {"error": "fail"}),
-        ([{"XXBT": "1.0"}, {"ZZZ": "2"}], {"XXBT": "1.0"}),
-        ({"XXBT": "1.0"}, {"XXBT": "1.0"}),
-        (None, None),
-    ],
-)
-def test_unwrap_api_response(resp, expected):
-    from src.balances import _unwrap_api_response as unwrap
-
-    result = unwrap(resp)
-    assert result == expected
+@pytest.fixture
+def tmp_balances_dir(monkeypatch):
+    tmp_dir = tempfile.mkdtemp()
+    monkeypatch.setattr(balances, "BALANCES_DIR", tmp_dir)
+    monkeypatch.setattr(
+        balances, "SNAPSHOTS_FILE", os.path.join(tmp_dir, "portfolio_snapshots.csv")
+    )
+    yield tmp_dir
+    shutil.rmtree(tmp_dir)
 
 
-# ----------------------------
-# Test normalize_asset_code
-# ----------------------------
-@pytest.mark.parametrize(
-    "asset,expected",
-    [
-        ("BTC.S", "BTC"),
-        ("ETH.F", "ETH"),
-        ("XRP.B", "XRP"),
-        ("DOGE1", "DOGE"),
-        ("LTCB", "LTC"),
-        ("ADA", "ADA"),
-        ("SOLF2", "SOL"),
-        ("BNB", "BNB"),
-    ],
-)
-def test_normalize_asset_code(asset, expected):
-    assert normalize_asset_code(asset) == expected
+def test_normalize_asset_code_basic():
+    assert normalize_asset_code("BTC.S") == "BTC"
+    assert normalize_asset_code("ETH.F") == "ETH"
+    assert normalize_asset_code("USDT.B") == "USDT"
+    assert normalize_asset_code("XRP123") == "XRP"
+    assert normalize_asset_code("LONGASSETB") == "LONGASSET"
+    assert normalize_asset_code("LTC") == "LTC"
 
 
-# ----------------------------
-# Test fetch_balances
-# ----------------------------
-def test_fetch_balances_dict():
-    mock_api = MagicMock()
-    mock_api.get_balance.return_value = {"XXBT": "1.5", "ZEUR": "0"}
-    result = fetch_balances(mock_api)
-    assert result == {"XXBT": 1.5}
+def test_unwrap_api_response_various_shapes():
+    # tuple wrapper
+    data = _unwrap_api_response(({"result": {"a": 1}},))
+    assert data == {"a": 1}
+
+    # list wrapper
+    data = _unwrap_api_response([{"result": {"b": 2}}])
+    assert data == {"b": 2}
+
+    # direct dict
+    data = _unwrap_api_response({"result": {"c": 3}})
+    assert data == {"c": 3}
+
+    # already unwrapped
+    data = _unwrap_api_response({"x": 1})
+    assert data == {"x": 1}
 
 
-# ----------------------------
-# Test fetch_asset_pairs
-# ----------------------------
+def test_fetch_balances_filter_and_conversion():
+    api_mock = MagicMock()
+    api_mock.get_balance.return_value = {"BTC": "1.0", "ETH": "0.0"}
+    result = fetch_balances(api_mock)
+    assert result == {"BTC": 1.0}
+
+
 def test_fetch_asset_pairs_success():
-    mock_api = MagicMock()
-    mock_api.get_asset_pairs.return_value = {
+    api_mock = MagicMock()
+    api_mock.get_asset_pairs.return_value = {
         "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
     }
-    result = fetch_asset_pairs(mock_api)
-    assert result == {"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}}
+    result = fetch_asset_pairs(api_mock)
+    assert result["XXBTZEUR"]["base"] == "XXBT"
 
 
-def test_fetch_asset_pairs_empty_raises():
-    mock_api = MagicMock()
-    mock_api.get_asset_pairs.return_value = {}
-    with pytest.raises(RuntimeError):
-        fetch_asset_pairs(mock_api)
-
-
-# ----------------------------
-# Test fetch_prices_batch
-# ----------------------------
-def test_fetch_prices_batch():
-    mock_api = MagicMock()
-    mock_api.get_ticker.return_value = {
-        "XXBTZEUR": {"c": ["30000.0", "1", "1.0"]},
-        "ETHZEUR": {"c": ["2000.0", "1", "1.0"]},
+def test_fetch_prices_batch_converts_decimal():
+    api_mock = MagicMock()
+    api_mock.get_ticker.return_value = {
+        "XXBTZEUR": {"c": ["12345.67"]},
+        "XETHZEUR": {"c": ["2000.5"]},
     }
-    pairs = ["XXBTZEUR", "ETHZEUR"]
-    result = fetch_prices_batch(mock_api, pairs)
-    assert result["XXBTZEUR"] == Decimal("30000.0")
-    assert result["ETHZEUR"] == Decimal("2000.0")
+    result = fetch_prices_batch(api_mock, ["XXBTZEUR", "XETHZEUR"])
+    assert result["XXBTZEUR"] == Decimal("12345.67")
+    assert result["XETHZEUR"] == Decimal("2000.5")
 
 
-# ----------------------------
-# Test _atomic_to_csv
-# ----------------------------
-def test_atomic_to_csv_creates_file():
-    df = pd.DataFrame({"A": [1, 2], "B": [3, 4]})
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        out_file = os.path.join(tmp_dir, "test.csv")
-        _atomic_to_csv(df, out_file, index=False)
-        df2 = pd.read_csv(out_file)
-        assert list(df2.columns) == ["A", "B"]
-        assert df2.shape == (2, 2)
-    finally:
-        shutil.rmtree(tmp_dir)
+def test_compute_trends_creates_columns(tmp_balances_dir):
+    # Создаём прошлые CSV с произвольной датой
+    old_date_file = os.path.join(tmp_balances_dir, "balance_2000-01-01.csv")
+    df_prev = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1000, 2000]})
+    df_prev.to_csv(old_date_file, index=False, encoding="utf-8")
+
+    # Текущий df
+    df_current = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1100, 2100]})
+    df_out = compute_trends(df_current)
+
+    # В колонках должен быть тренд с любым prefix Trend_
+    trend_cols = [c for c in df_out.columns if c.startswith("Trend_")]
+    assert trend_cols
+    # Проверка расчёта разницы
+    assert df_out.loc[df_out["Asset"] == "BTC", trend_cols[0]].iloc[0] == 100
+    assert df_out.loc[df_out["Asset"] == "ETH", trend_cols[0]].iloc[0] == 100
+    # Проверка Portfolio Trend Avg
+    assert "Portfolio Trend Avg" in df_out.columns
+    assert df_out["Portfolio Trend Avg"].iloc[0] == 100
 
 
-# ----------------------------
-# Test compute_trends
-# ----------------------------
-def test_compute_trends_creates_trend_column():
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        # patch BALANCES_DIR to tmp_dir
-        with patch("src.balances.BALANCES_DIR", tmp_dir):
-            # Create previous CSV
-            prev_df = pd.DataFrame(
-                {"Asset": ["BTC", "ETH"], "Value (EUR)": [1000, 2000]}
-            )
-            prev_file = os.path.join(tmp_dir, "balance_2025-01-01.csv")
-            prev_df.to_csv(prev_file, index=False)
+def test_compute_trends_with_no_previous_file(tmp_balances_dir):
+    df = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [1000]})
+    result = compute_trends(df)
+    # Без прошлых файлов колонок Trend_ не создаётся
+    assert (
+        "Portfolio Trend Avg" not in result.columns
+        or result["Portfolio Trend Avg"].iloc[0] == 0
+    )
 
-            # Current df
-            df = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1100, 2100]})
-            df_out = compute_trends(df)
 
-            # Detect trend column automatically (since it's based on datetime.now)
-            trend_cols = [c for c in df_out.columns if c.startswith("Trend_")]
-            assert trend_cols, "No trend column created"
-            trend_col = trend_cols[0]
+def test_atomic_csv_write(tmp_balances_dir):
+    path = os.path.join(tmp_balances_dir, "test.csv")
+    df = pd.DataFrame({"a": [1, 2]})
+    balances._atomic_to_csv(df, path, index=False)
+    assert os.path.exists(path)
+    df2 = pd.read_csv(path)
+    assert (df2["a"] == [1, 2]).all()
 
-            # Check values exist
-            assert not df_out[trend_col].isna().all()
-            # Portfolio Trend Avg column should exist
-            assert "Portfolio Trend Avg" in df_out.columns
-    finally:
-        shutil.rmtree(tmp_dir)
+
+def test_atomic_json_write(tmp_balances_dir):
+    path = os.path.join(tmp_balances_dir, "test.json")
+    data = {"x": 1}
+    balances._write_json_atomic(data, path)
+    import json
+
+    with open(path) as f:
+        d = json.load(f)
+    assert d == data

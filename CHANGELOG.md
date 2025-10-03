@@ -2,7 +2,7 @@
 
 ## [0.9.4.2] - 2025-10-03
 ### Fixed
-- Removed accidentally committed `ledger.db` file and added to `.gitignore`.
+- Prevent from accidentally commit of `ledger.db` or `.master` file by adding `*.db`, `*.master` to `.gitignore`.
 - Fixed `days` argument propagation across `start.py`, `ledger_asset_report.py`, `ledger_eur_report.py`, `ledger_loader.py`, and `ledger_sell_report.py`.
 - Improved `keys.py` to support dual storage (system keyring + `.master` backup).
 - Added snapshot test to verify `kraken.key` encryption (ensures no plain-text keys are stored).
