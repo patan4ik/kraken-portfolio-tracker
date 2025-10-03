@@ -169,3 +169,74 @@ def test_main_with_keys(monkeypatch):
 
     res = main(["--no-update"])
     assert res == 0
+
+
+# ---------------- EXTRA COVERAGE ---------------- #
+
+
+def test_unwrap_api_response_invalid_shapes():
+    # Если result вообще нет, возвращается как есть
+    data = _unwrap_api_response({"foo": "bar"})
+    assert data == {"foo": "bar"}
+
+    # tuple без словаря внутри
+    data = _unwrap_api_response(({"x": 1, "y": 2},))
+    assert data == {"x": 1, "y": 2}
+
+
+def test_fetch_balances_empty_and_zero(monkeypatch):
+    api_mock = MagicMock()
+    api_mock.get_balance.return_value = {"BTC": "0.0", "ETH": "0.0"}
+    result = fetch_balances(api_mock)
+    assert result == {}  # всё обнулилось → ничего не осталось
+
+
+def test_fetch_asset_pairs_handles_empty(monkeypatch):
+    api_mock = MagicMock()
+    api_mock.get_asset_pairs.return_value = {}
+    with pytest.raises(RuntimeError, match="AssetPairs error: пустой ответ"):
+        fetch_asset_pairs(api_mock)
+
+
+def test_fetch_prices_batch_empty(monkeypatch):
+    api_mock = MagicMock()
+    api_mock.get_ticker.return_value = {}
+    result = fetch_prices_batch(api_mock, [])
+    assert result == {}
+
+
+def test_compute_trends_with_corrupted_previous_file(tmp_balances_dir):
+    # Создаем битый CSV
+    bad_file = os.path.join(tmp_balances_dir, "balance_2000-01-01.csv")
+    with open(bad_file, "w", encoding="utf-8") as f:
+        f.write("not,a,valid,csv")
+    df_current = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [500]})
+    df_out = compute_trends(df_current)
+    # при ошибке чтения колонка трендов отсутствует
+    assert "Portfolio Trend Avg" not in df_out.columns
+
+
+def test_release_lock_without_acquire(monkeypatch):
+    # _lock может быть None
+    balances._lock = None
+    _release_lock()  # должно тихо пройти
+
+
+def test_main_full_run(monkeypatch, tmp_balances_dir):
+    api_mock = MagicMock()
+    api_mock.get_balance.return_value = {"BTC": "1.0"}
+    api_mock.get_asset_pairs.return_value = {
+        "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
+    }
+    api_mock.get_ticker.return_value = {"XXBTZEUR": {"c": ["5000.0"]}}
+
+    monkeypatch.setattr(balances, "keys_exist", lambda: True)
+    monkeypatch.setattr(
+        balances, "load_keys", lambda: {"api_key": "k", "api_secret": "s"}
+    )
+    monkeypatch.setattr(balances, "KrakenAPI", lambda k, s: api_mock)
+    monkeypatch.setattr(balances, "_atomic_to_csv", lambda df, path, **kwargs: None)
+
+    # Запуск без --no-update (default full run)
+    res = main([])
+    assert res == 0
