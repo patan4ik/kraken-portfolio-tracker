@@ -1,4 +1,4 @@
-# start.py
+# start.py (изменённый фрагмент main и импорты)
 import logging
 import os
 import sys
@@ -15,6 +15,7 @@ import ledger_asset_report
 import ledger_sell_report
 import balances
 from keys import save_keys, load_keys, KeysError
+from config import DEFAULT_DAYS  # <- добавлено
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -25,11 +26,20 @@ logging.basicConfig(
 def main(argv=None):
     logger.info("🚀 Kraken Portfolio Tracker initialization started")
     parser = argparse.ArgumentParser(description="Kraken Portfolio Tracker")
+
+    # CLI options
     parser.add_argument(
         "--setup-keys", action="store_true", help="Interactively setup API keys"
     )
-    # ignore pytest/CI extra arguments
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=DEFAULT_DAYS,
+        help="How many days to include when updating ledger and building reports (default: %(default)s)",
+    )
+    # parse_known_args so pytest/CI extra flags don't break our CLI
     args = parser.parse_known_args(argv)[0]
+    days = args.days
 
     if args.setup_keys:
         try:
@@ -51,26 +61,41 @@ def main(argv=None):
         logger.info("✅ API keys loaded successfully")
     except KeysError:
         logger.error(
-            "ERROR: API-ключи Kraken не найдены. Создайте файл ключей или используйте --setup-keys."
+            "ERROR: API keys not found. Create kraken.key file or use --setup-keys. / API-ключи Kraken не найдены. Создайте файл ключей или используйте --setup-keys."
         )
+        # exit non-zero — caller/tests expect termination
         sys.exit(1)
+        return
     except Exception as e:
         logger.error(f"Unexpected error loading keys: {e}")
         sys.exit(1)
-
-    # --- 3. Portfolio ---
-    try:
-        # Return the result of balances.main so callers/tests get it
-        result = balances.main()
-    except Exception as e:
-        logger.error("Ошибка при загрузке портфеля: %s", e)
         return
 
-    # --- 4. DB / raw ledger ---
+    # --- 1. Portfolio (balances) ---
+    # Prevent balances.main from updating the ledger itself (it defaults to using
+    # its own days). start.py has the authoritative --days param and will run
+    # ledger_loader.update_raw_ledger() below. Call balances with --no-update.
+    result = None
     try:
-        if os.path.exists(storage.DB_FILE):
+        logger.debug(
+            "Calling balances.main with --no-update to avoid double ledger fetch"
+        )
+        result = balances.main(["--no-update"])
+    except Exception as e:
+        logger.error("Error loading portfolio / Ошибка при загрузке портфеля: %s", e)
+        # continue: reports can still be built even if balances output failed
+
+    # --- 2. DB / raw ledger ---
+    try:
+        db_exists = os.path.exists(storage.DB_FILE)
+        raw_exists = os.path.exists(storage.RAW_LEDGER_FILE)
+
+        # If user explicitly requested a different number of days, force update to satisfy request.
+        force_update = args.days != DEFAULT_DAYS
+
+        if db_exists and not force_update:
             logger.info("✅ ledger.db already exists")
-        elif os.path.exists(storage.RAW_LEDGER_FILE):
+        elif raw_exists and not force_update:
             logger.info("💡 Found raw-ledger.json, creating SQLite DB from it...")
             raw_entries = storage.load_entries()
             if raw_entries:
@@ -80,23 +105,28 @@ def main(argv=None):
                 logger.warning(
                     "⚠️ raw-ledger.json is empty or invalid, downloading from Kraken..."
                 )
-                ledger_loader.update_raw_ledger(days=30)
+                ledger_loader.update_raw_ledger(days=days)
                 storage.init_db()
         else:
-            logger.info(
-                "💡 No valid raw-ledger.json or ledger.db found. Downloading raw ledger from Kraken..."
-            )
-            ledger_loader.update_raw_ledger(days=30)
+            # Either DB missing, or user explicitly requested days (force_update)
+            if db_exists and force_update:
+                logger.info("🔁 Forcing ledger update because --days was specified.")
+            else:
+                logger.info(
+                    "💡 No valid raw-ledger.json or ledger.db found. Downloading raw ledger from Kraken..."
+                )
+            ledger_loader.update_raw_ledger(days=days)
             storage.init_db()
     except Exception as e:
         logger.exception("Error while preparing DB/raw ledger: %s", e)
 
-    # --- 5. Reports ---
+    # --- 3. Reports ---
     logger.info("Generating reports...")
     entries = storage.load_entries_from_db()
-    eur_df = ledger_eur_report.build_eur_report(entries, days=10)
-    asset_df = ledger_asset_report.build_asset_report(entries, days=10)
-    sell_df = ledger_sell_report.build_sell_report(entries, days=10)
+
+    eur_df = ledger_eur_report.build_eur_report(entries, days=days)
+    asset_df = ledger_asset_report.build_asset_report(entries, days=days)
+    sell_df = ledger_sell_report.build_sell_report(entries, days=days)
 
     if eur_df is not None and not eur_df.empty:
         ledger_eur_report.save_eur_report(eur_df)
@@ -116,7 +146,7 @@ def main(argv=None):
     logger.info("✅ Initialization completed successfully.")
 
     # propagate balances.main() return value to caller/tests
-    return result
+    return result  # вернуть результат balances.main()
 
 
 def _db_row_count(db_path: str) -> int:

@@ -8,8 +8,10 @@ build/
 *.pyd
 *.log
 *.spec
-*.key
-balances_history/
 .env
 .idea/
 .vscode/
+balances_history/
+*.key
+*.db
+*.master

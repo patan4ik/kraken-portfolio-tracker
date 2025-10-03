@@ -1,4 +1,7 @@
 # src/config.py
+# ...
+# DEFAULT_* provide default values. CLI args (--days etc.) should override these values.
+
 import os
 
 # Каталог, куда складываются все отчёты, базы и историю

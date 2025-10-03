@@ -1,8 +1,19 @@
 # Changelog
 
+## [0.9.4.2] - 2025-10-03
+### Fixed
+- Removed accidentally committed `ledger.db` file and added to `.gitignore`.
+- Fixed `days` argument propagation across `start.py`, `ledger_asset_report.py`, `ledger_eur_report.py`, `ledger_loader.py`, and `ledger_sell_report.py`.
+- Improved `keys.py` to support dual storage (system keyring + `.master` backup).
+- Added snapshot test to verify `kraken.key` encryption (ensures no plain-text keys are stored).
+- All unit tests are now green.
+
+
 ## [0.9.4.1] - 2025-09-30
 ### Changed
 - `start.main()` now returns the result of `balances.main()`, enabling consistent testing and programmatic usage.
+
+### Fixed
 - Improved error handling and cleaned unit tests failures.
 
 

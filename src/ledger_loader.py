@@ -40,11 +40,21 @@ def fetch_ledger(
 
     ofs = 0
     while True:
-        resp = api.get_ledgers(ofs=ofs)
+        # Try to supply 'since' and 'page_size' (if API wrapper supports them).
+        try:
+            resp = api.get_ledgers(ofs=ofs, since=since_limit, page_size=page_size)
+        except TypeError:
+            # Fallback for wrappers that accept only ofs (or have different signature)
+            resp = api.get_ledgers(ofs=ofs)
+        except Exception as e:
+            logger.warning("API call to get_ledgers failed: %s", e)
+            break
+
         if not resp:
             break
 
-        ledgers = resp.get("ledger", resp)
+        # Kraken sometimes returns envelope, sometimes direct dict
+        ledgers = resp.get("ledger", resp) if isinstance(resp, dict) else resp
         if not ledgers:
             break
 
