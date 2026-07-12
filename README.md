@@ -1,6 +1,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Coverage](https://codecov.io/gh/patan4ik/kraken-portfolio-tracker/branch/main/graph/badge.svg)
+![Version](https://img.shields.io/badge/version-1.0.0.0-brightgreen)
 
 # Kraken Portfolio Tracker
 
@@ -41,6 +42,17 @@ Whether you're a casual investor or a data-driven trader, this tool gives you in
   - **Sell report** (`ledger_sell_report.csv`) – sell operations with proceeds and fees
 - CLI options for each report:  
   `python ledger_asset_report.py --days=10 --csv`
+
+### Portfolio Summary & Reconciliation (v1.0.0.0)
+- **FIFO cost-basis engine** (`portfolio_summary.py`) — recomputes running average buy price per asset from the full ledger history on every run (no incremental state), correctly handling Kraken wallet-suffix splits (`.F`/`.B`/`.S`) and excluding internal transfers
+- **Price forecasting** — EMA7 + linear regression trend, producing 7-day and 30-day price forecasts per asset
+- **Enriched summary report** (`portfolio_summary_report.py`) — Sell targets (+25/35/50/75%), Trend, Upside %, Volatility Score, Recovery Strength, Confidence, Regime, and Signal (BUY/HOLD/REDUCE/HIGH RISK), exported to `portfolio_summary_report.csv`
+- **Balance reconciliation** (`balance_reconciliation.py`) — cross-checks FIFO output against your live Kraken balance snapshot and flags any mismatch beyond tolerance in `reconciliation_report.csv`
+- **Incremental updater** (`update.py`) — detects and fetches only missing ledger date ranges, validates DB/schema/API keys upfront (`validators.py`), then automatically refreshes balances, FIFO summary, and reconciliation in one run:
+  ```bash
+  python update.py --fromdate 30d --csv
+  python update.py --fromdate 2026-01-01 --todate 2026-06-30 --dry-run
+  ```
 
 ### CLI & Automation
 - Central launcher: `python start.py`
@@ -152,9 +164,14 @@ sqlite> SELECT COUNT(*) FROM ledger;
 ## Running Tests
 Run the unit tests:
 ```bash
-pytest -v
-pytest --cov=. --cov-report=xm # tests with coverage
+pytest -v tests/
+pytest --cov=. --cov-report=term-missing   # coverage in terminal
+pytest --cov=. --cov-report=xml            # coverage for CI (e.g. Codecov)
 ```
+
+The suite (171 tests) covers all `/src` modules plus `update.py`, `start.py`, `validators.py`, `portfolio_summary.py`, `portfolio_summary_report.py`, and `balance_reconciliation.py`. `tests/conftest.py` adds both the project root and `src/` to `sys.path` so root-level scripts and `src/` modules can be imported directly in tests without stubbing.
+
+The suite (171 tests) covers all `/src` modules plus `update.py`, `start.py`, `validators.py`, `portfolio_summary.py`, `portfolio_summary_report.py`, and `balance_reconciliation.py`. `tests/conftest.py` adds both the project root and `src/` to `sys.path` so root-level scripts and `src/` modules can be imported directly in tests without stubbing.
 
 ## Code Style
 

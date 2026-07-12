@@ -3,7 +3,6 @@ import logging
 import os
 import sys
 import argparse
-import sqlite3
 
 # add src to PYTHONPATH
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -16,6 +15,7 @@ import ledger_sell_report
 import balances
 from keys import save_keys, load_keys, KeysError
 from config import DEFAULT_DAYS  # <- добавлено
+from validators import db_row_count
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -143,31 +143,34 @@ def main(argv=None):
     if sell_df is not None:
         logger.info(f" - Sell report: {len(sell_df)} rows")
 
+    ledger_rows = db_row_count(storage.DB_FILE)
+    logger.info(f"Ledger contains {ledger_rows} rows")
     logger.info("✅ Initialization completed successfully.")
 
     # propagate balances.main() return value to caller/tests
     return result  # вернуть результат balances.main()
 
 
-def _db_row_count(db_path: str) -> int:
-    try:
-        if not os.path.exists(db_path):
-            return 0
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='ledger'"
-        )
-        if not cur.fetchone():
-            conn.close()
-            return 0
-        cur.execute("SELECT count(*) FROM ledger")
-        cnt = cur.fetchone()[0]
-        conn.close()
-        return int(cnt)
-    except Exception as e:
-        logger.warning("Could not count rows in DB %s: %s", db_path, e)
-        return 0
+# logic moved to validators.py
+# def _db_row_count(db_path: str) -> int:
+#    try:
+#        if not os.path.exists(db_path):
+#            return 0
+#        conn = sqlite3.connect(db_path)
+#        cur = conn.cursor()
+#        cur.execute(
+#            "SELECT name FROM sqlite_master WHERE type='table' AND name='ledger'"
+#        )
+#        if not cur.fetchone():
+#            conn.close()
+#            return 0
+#        cur.execute("SELECT count(*) FROM ledger")
+#        cnt = cur.fetchone()[0]
+#        conn.close()
+#        return int(cnt)
+#    except Exception as e:
+#        logger.warning("Could not count rows in DB %s: %s", db_path, e)
+#        return 0
 
 
 if __name__ == "__main__":

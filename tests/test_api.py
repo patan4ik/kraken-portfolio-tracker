@@ -1,79 +1,118 @@
-# tests/test_api.py
+"""Unit tests for api.py — KrakenAPI wrapper with retry/backoff."""
+
 import sys
-import os
+import types
+import pytest
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
-import api
+krakenex_stub = types.ModuleType("krakenex")
 
 
-class DummyAPI:
-    """Fake krakenex.API with controllable responses."""
+class _FakeKrakenexAPI:
+    def __init__(self, key=None, secret=None):
+        self.key = key
+        self.secret = secret
 
-    def __init__(self, responses):
-        # responses = {"Ledgers": {"result": {...}}, "Assets": {"error": ["EGeneral:Invalid"]}}
-        self.responses = responses
-        self.calls = []
+    def query_public(self, method, data):
+        return {"error": [], "result": {"public": method}}
 
-    def query_private(self, method, data=None):
-        self.calls.append(("private", method, data))
-        return self.responses.get(method, {"result": {}})
-
-    def query_public(self, method, data=None):
-        self.calls.append(("public", method, data))
-        return self.responses.get(method, {"result": {}})
+    def query_private(self, method, data):
+        return {"error": [], "result": {"private": method}}
 
 
-def test_get_ledgers_returns_dict(monkeypatch):
-    """Check that get_ledgers calls query_private and returns parsed dict."""
-    dummy = DummyAPI({"Ledgers": {"result": {"ledger": {"tx1": {"time": "12345"}}}}})
+krakenex_stub.API = _FakeKrakenexAPI
+sys.modules["krakenex"] = krakenex_stub
 
-    # Patch krakenex.API to return our dummy instead of real network client
-    monkeypatch.setattr(api.krakenex, "API", lambda key, secret: dummy)
-
-    k = api.KrakenAPI("dummy_key", "dummy_secret")
-    result = k.get_ledgers(ofs=0)
-
-    assert "ledger" in result
-    assert "tx1" in result["ledger"]
-    assert dummy.calls[0][0] == "private"  # ensure it used query_private
+import api as api_mod  # noqa: E402
 
 
 def test_get_assets_calls_public(monkeypatch):
-    """Check that get_assets uses query_public and returns parsed dict."""
-    dummy = DummyAPI({"Assets": {"result": {"XXBT": {"altname": "BTC"}}}})
-
-    monkeypatch.setattr(api.krakenex, "API", lambda key, secret: dummy)
-
-    k = api.KrakenAPI("dummy", "dummy")
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
     result = k.get_assets()
-
-    assert "XXBT" in result
-    assert dummy.calls[0][0] == "public"  # should call query_public
+    assert result == {"public": "Assets"}
 
 
-def test_call_retries_on_error(monkeypatch):
-    """Simulate error response -> retries -> final success."""
-    responses = {
-        "Balance": {"error": ["EGeneral:Temporary error"]},  # first call fails
-    }
-    dummy = DummyAPI(responses)
-
-    # Make second call return success
-    def side_effect(method, data=None):
-        if not hasattr(dummy, "called_once"):
-            dummy.called_once = True
-            return {"error": ["EGeneral:Temporary error"]}
-        return {"result": {"ZEUR": "100.0"}}
-
-    dummy.query_private = side_effect
-
-    monkeypatch.setattr(api.krakenex, "API", lambda key, secret: dummy)
-    # Patch time.sleep so test runs fast
-    monkeypatch.setattr(api.time, "sleep", lambda s: None)
-
-    k = api.KrakenAPI("dummy", "dummy")
+def test_get_balance_calls_private(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
     result = k.get_balance()
+    assert result == {"private": "Balance"}
 
-    assert "ZEUR" in result
+
+def test_get_ticker_passes_pair(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
+    captured = {}
+
+    def fake_query_public(method, data):
+        captured["method"] = method
+        captured["data"] = data
+        return {"error": [], "result": {}}
+
+    k.api.query_public = fake_query_public
+    k.get_ticker("XBTEUR")
+    assert captured["data"] == {"pair": "XBTEUR"}
+
+
+def test_get_ledgers_with_since_and_ofs(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
+    captured = {}
+
+    def fake_query_private(method, data):
+        captured["data"] = data
+        return {"error": [], "result": {}}
+
+    k.api.query_private = fake_query_private
+    k.get_ledgers(since=100, ofs=5)
+    assert captured["data"] == {"since": 100, "ofs": 5}
+
+
+def test_call_retries_on_error_then_succeeds(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(api_mod.random, "uniform", lambda a, b: 0.0)
+
+    calls = {"n": 0}
+
+    def flaky(method, data):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return {"error": ["EGeneral:Temp"], "result": {}}
+        return {"error": [], "result": {"ok": True}}
+
+    k.api.query_public = flaky
+    result = k._call("Assets", max_retries=5)
+    assert result == {"ok": True}
+    assert calls["n"] == 2
+
+
+def test_call_raises_after_max_retries(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(api_mod.random, "uniform", lambda a, b: 0.0)
+
+    def always_error(method, data):
+        return {"error": ["EGeneral:Fail"], "result": {}}
+
+    k.api.query_public = always_error
+    with pytest.raises(RuntimeError):
+        k._call("Assets", max_retries=2)
+
+
+def test_call_retries_on_exception(monkeypatch):
+    k = api_mod.KrakenAPI("k", "s")
+    monkeypatch.setattr(api_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(api_mod.random, "uniform", lambda a, b: 0.0)
+
+    calls = {"n": 0}
+
+    def raises_then_ok(method, data):
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise ConnectionError("boom")
+        return {"error": [], "result": {"ok": True}}
+
+    k.api.query_public = raises_then_ok
+    result = k._call("Assets", max_retries=5)
+    assert result == {"ok": True}

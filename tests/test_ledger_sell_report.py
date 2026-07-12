@@ -1,115 +1,102 @@
-# tests/test_ledger_sell_report.py
-import unittest
-from unittest.mock import patch
-from datetime import datetime, timezone, timedelta
-import pandas as pd
+"""Unit tests for ledger_sell_report.py — daily sell aggregation (crypto -> EUR)."""
+
 import sys
-import os
+import types
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
-import ledger_sell_report as report
+import pytest
 
 
-class TestLedgerSellReport(unittest.TestCase):
+@pytest.fixture()
+def sell_mod(tmp_path, monkeypatch):
+    storage_stub = types.ModuleType("storage")
+    storage_stub.BALANCES_DIR = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "storage", storage_stub)
+    if "ledger_sell_report" in sys.modules:
+        del sys.modules["ledger_sell_report"]
+    import ledger_sell_report as sell_mod  # noqa: E402
 
-    def setUp(self):
-        now = datetime.now(timezone.utc)
-        self.recent_ts = now.timestamp()
-        self.old_ts = (now - timedelta(days=10)).timestamp()
-
-        self.entries = {
-            "tx1": {
-                "time": self.recent_ts,
-                "amount": "-0.5",
-                "asset": "BTC",
-                "fee": "0.01",
-            },
-            "tx2": {
-                "time": self.recent_ts,
-                "amount": "1000",
-                "asset": "EUR",
-                "refid": "tx1",
-            },
-            "tx3": {
-                "time": self.recent_ts,
-                "amount": "-1.0",
-                "asset": "ETH",
-                "fee": "0.02",
-            },
-            "tx4": {
-                "time": self.recent_ts,
-                "amount": "500",
-                "asset": "ZEUR",
-                "refid": "tx3",
-            },
-            "tx5": {
-                "time": self.old_ts,
-                "amount": "-2.0",
-                "asset": "BTC",
-                "fee": "0.03",
-            },  # outside cutoff
-        }
-
-    def test_build_sell_report_empty_input(self):
-        df = report.build_sell_report({})
-        self.assertTrue(df.empty)
-
-    def test_build_sell_report_all_filtered_out(self):
-        df = report.build_sell_report(
-            {"tx": {"time": self.old_ts, "amount": "-1", "asset": "BTC"}}, days=7
-        )
-        self.assertTrue(df.empty)
-
-    def test_build_sell_report_valid_entries(self):
-        df = report.build_sell_report(self.entries, days=7)
-        self.assertFalse(df.empty)
-        self.assertIn("BTC", df.columns)
-        self.assertIn("ETH", df.columns)
-        self.assertIn("Total EUR", df.columns)
-        self.assertIn("Total Fee", df.columns)
-        self.assertEqual(df["BTC"].sum(), 0.5)
-        self.assertEqual(df["ETH"].sum(), 1.0)
-        self.assertEqual(df["Total EUR"].sum(), 1500)
-        self.assertAlmostEqual(df["Total Fee"].sum(), 0.03)
-
-    @patch("ledger_sell_report.storage.BALANCES_DIR", "mock_dir")
-    @patch("ledger_sell_report.pd.DataFrame.to_csv")
-    @patch("ledger_sell_report.os.makedirs")
-    def test_save_sell_report(self, mock_makedirs, mock_to_csv):
-        df = pd.DataFrame(
-            [{"Date": "01.01.2023", "BTC": 0.5, "Total EUR": 1000, "Total Fee": 0.01}]
-        )
-        report.save_sell_report(df)
-        mock_makedirs.assert_called_once_with("mock_dir", exist_ok=True)
-        mock_to_csv.assert_called_once()
-
-        @patch("ledger_sell_report.storage.load_entries_from_db")
-        def test_update_sell_report_no_entries(mock_load):
-            mock_load.return_value = {}
-            result = report.update_sell_report()
-            assert isinstance(result, pd.DataFrame)
-            assert result.empty
-
-    @patch("ledger_sell_report.save_sell_report")
-    @patch("ledger_sell_report.storage.load_entries_from_db")
-    def test_update_sell_report_with_csv(self, mock_load, mock_save):
-        mock_load.return_value = self.entries
-        df = report.update_sell_report(write_csv=True)
-        self.assertIsInstance(df, pd.DataFrame)
-        mock_save.assert_called_once()
-
-    @patch("ledger_sell_report.storage.load_entries_from_db")
-    def test_update_sell_report_empty_df(self, mock_load):
-        mock_load.return_value = {
-            "tx": {"time": self.old_ts, "amount": "-1", "asset": "BTC"}
-        }
-        result = report.update_sell_report()
-        assert isinstance(result, pd.DataFrame)
-        assert result.empty  # instead of self.assertIsNone(result)
-        # self.assertIsNone(result)
+    yield sell_mod
+    if "ledger_sell_report" in sys.modules:
+        del sys.modules["ledger_sell_report"]
 
 
-if __name__ == "__main__":
-    unittest.main()
+def _entry(refid, asset, amount, fee=0.0, time_=None):
+    import time as _t
+
+    return {
+        "asset": asset,
+        "amount": amount,
+        "fee": fee,
+        "refid": refid,
+        "time": time_ if time_ is not None else _t.time(),
+    }
+
+
+def test_build_sell_report_empty(sell_mod):
+    assert sell_mod.build_sell_report({}).empty
+
+
+def test_build_sell_report_basic(sell_mod):
+    import time as _t
+
+    now = _t.time()
+    entries = {
+        "s1": _entry("r1", "BTC", -0.01, fee=0.5, time_=now),
+        "e1": _entry("r1", "ZEUR", 200.0, time_=now),
+    }
+    df = sell_mod.build_sell_report(entries, days=7)
+    assert not df.empty
+    assert df.iloc[0]["Total EUR"] == pytest.approx(200.0)
+    assert df.iloc[0]["BTC"] == pytest.approx(0.01)
+
+
+def test_build_sell_report_requires_both_legs(sell_mod):
+    import time as _t
+
+    now = _t.time()
+    entries = {"s1": _entry("r1", "BTC", -0.01, time_=now)}
+    df = sell_mod.build_sell_report(entries, days=7)
+    assert df.empty
+
+
+def test_build_sell_report_outside_cutoff(sell_mod):
+    entries = {
+        "s1": _entry("r1", "BTC", -0.01, time_=1.0),
+        "e1": _entry("r1", "ZEUR", 200.0, time_=1.0),
+    }
+    df = sell_mod.build_sell_report(entries, days=7)
+    assert df.empty
+
+
+def test_save_sell_report_writes_csv(sell_mod):
+    import pandas as pd
+    import os
+
+    df = pd.DataFrame(
+        [{"Date": "2026-01-01", "Total EUR": 200.0, "Total Fee": 0.5, "BTC": 0.01}]
+    )
+    sell_mod.save_sell_report(df)
+    assert os.path.exists(sell_mod.LEDGER_SELL_FILE)
+
+
+def test_update_sell_report_empty(sell_mod, monkeypatch):
+    monkeypatch.setattr(
+        sell_mod.storage, "load_entries_from_db", lambda: {}, raising=False
+    )
+    df = sell_mod.update_sell_report(days=7, write_csv=False)
+    assert df.empty
+
+
+def test_update_sell_report_with_data(sell_mod):
+    import time as _t
+    import os
+
+    now = _t.time()
+    entries = {
+        "s1": _entry("r1", "BTC", -0.01, fee=0.5, time_=now),
+        "e1": _entry("r1", "ZEUR", 200.0, time_=now),
+    }
+    sell_mod.storage.load_entries_from_db = lambda: entries
+    df = sell_mod.update_sell_report(days=7, write_csv=True)
+    assert not df.empty
+    assert os.path.exists(sell_mod.LEDGER_SELL_FILE)

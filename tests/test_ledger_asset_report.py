@@ -1,103 +1,96 @@
-# tests/test_ledger_asset_report.py
-import unittest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
-import pandas as pd
+"""Unit tests for ledger_asset_report.py — daily asset acquisition aggregation."""
+
 import sys
-import os
+import types
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
-import ledger_asset_report as report
+import pytest
 
 
-class TestLedgerAssetReport(unittest.TestCase):
+@pytest.fixture()
+def asset_mod(tmp_path, monkeypatch):
+    storage_stub = types.ModuleType("storage")
+    storage_stub.BALANCES_DIR = str(tmp_path)
+    monkeypatch.setitem(sys.modules, "storage", storage_stub)
+    if "ledger_asset_report" in sys.modules:
+        del sys.modules["ledger_asset_report"]
+    import ledger_asset_report as asset_mod  # noqa: E402
 
-    def setUp(self):
-        # self.now = datetime.utcnow()
-        self.now = datetime.now(timezone.utc)  # instead of UTC
-        self.timestamp = self.now.timestamp()
-        self.old_timestamp = (self.now - timedelta(days=10)).timestamp()
-
-        self.valid_entries = {
-            "tx1": {"time": self.timestamp, "amount": "1.5", "asset": "BTC"},
-            "tx2": {
-                "time": self.timestamp,
-                "amount": "2.0",
-                "asset": "ETH",
-                "refid": "tx1",
-            },
-            "tx3": {
-                "time": self.timestamp,
-                "amount": "-1.0",
-                "asset": "BTC",
-            },  # negative amount
-            "tx4": {
-                "time": self.timestamp,
-                "amount": "1.0",
-                "asset": "EUR",
-            },  # excluded asset
-            "tx5": {
-                "time": self.old_timestamp,
-                "amount": "3.0",
-                "asset": "BTC",
-            },  # outside cutoff
-        }
-
-    def test_build_asset_report_empty_input(self):
-        df = report.build_asset_report({})
-        self.assertTrue(df.empty)
-
-    def test_build_asset_report_all_filtered_out(self):
-        df = report.build_asset_report(
-            {"tx": {"time": self.old_timestamp, "amount": "1", "asset": "BTC"}}, days=7
-        )
-        self.assertTrue(df.empty)
-
-    def test_build_asset_report_valid_entries(self):
-        df = report.build_asset_report(self.valid_entries, days=7)
-        self.assertFalse(df.empty)
-        self.assertIn("BTC", df.columns)
-        self.assertIn("ETH", df.columns)
-        self.assertNotIn("EUR", df.columns)
-        self.assertEqual(df["BTC"].sum(), 1.5)
-        self.assertEqual(df["ETH"].sum(), 2.0)
-
-    @patch("ledger_asset_report.storage.BALANCES_DIR", "mock_dir")
-    @patch("ledger_asset_report.pd.DataFrame.to_csv")
-    @patch("ledger_asset_report.os.makedirs")
-    def test_save_asset_report(self, mock_makedirs, mock_to_csv):
-        df = pd.DataFrame([{"Date": "01.01.2023", "BTC": 1.5}])
-        report.save_asset_report(df)
-        mock_makedirs.assert_called_once_with("mock_dir", exist_ok=True)
-        mock_to_csv.assert_called_once()
-
-        @patch("ledger_asset_report.storage.load_entries_from_db")
-        def test_update_asset_report_no_entries(mock_load):
-            mock_load.return_value = {}
-            result = report.update_asset_report()
-            assert isinstance(result, pd.DataFrame)
-            assert result.empty
-
-    @patch("ledger_asset_report.save_asset_report")
-    @patch("ledger_asset_report.storage.load_entries_from_db")
-    def test_update_asset_report_with_csv(self, mock_load, mock_save):
-        mock_load.return_value = self.valid_entries
-        df = report.update_asset_report(write_csv=True)
-        self.assertIsInstance(df, pd.DataFrame)
-        mock_save.assert_called_once()
-
-    @patch("ledger_asset_report.storage.load_entries_from_db")
-    def test_update_asset_report_empty_df(self, mock_load):
-        mock_load.return_value = {
-            "tx": {"time": self.old_timestamp, "amount": "1", "asset": "BTC"}
-        }
-        result = report.update_asset_report()
-        assert isinstance(result, pd.DataFrame)
-        assert result.empty  # instead of self.assertIsNone(result)
-        # self.assertIsNone(result)
+    yield asset_mod
+    if "ledger_asset_report" in sys.modules:
+        del sys.modules["ledger_asset_report"]
 
 
-if __name__ == "__main__":
-    unittest.main()
+def _entry(refid, asset, amount, time_=None):
+    import time as _t
+
+    return {
+        "asset": asset,
+        "amount": amount,
+        "refid": refid,
+        "time": time_ if time_ is not None else _t.time(),
+    }
+
+
+def test_build_asset_report_empty(asset_mod):
+    assert asset_mod.build_asset_report({}).empty
+
+
+def test_build_asset_report_basic(asset_mod):
+    import time as _t
+
+    now = _t.time()
+    entries = {
+        "b1": _entry("r1", "BTC", 0.01, time_=now),
+        "s1": _entry("r1", "ZEUR", -100.0, time_=now),
+    }
+    df = asset_mod.build_asset_report(entries, days=7)
+    assert not df.empty
+    assert "BTC" in df.columns
+    assert df.iloc[0]["BTC"] == pytest.approx(0.01)
+
+
+def test_build_asset_report_excludes_eur_leg(asset_mod):
+    import time as _t
+
+    now = _t.time()
+    entries = {"s1": _entry("r1", "ZEUR", 100.0, time_=now)}
+    df = asset_mod.build_asset_report(entries, days=7)
+    assert df.empty
+
+
+def test_build_asset_report_outside_cutoff(asset_mod):
+    entries = {"b1": _entry("r1", "BTC", 0.01, time_=1.0)}
+    df = asset_mod.build_asset_report(entries, days=7)
+    assert df.empty
+
+
+def test_save_asset_report_writes_csv(asset_mod):
+    import pandas as pd
+    import os
+
+    df = pd.DataFrame([{"Date": "2026-01-01", "BTC": 0.01}])
+    asset_mod.save_asset_report(df)
+    assert os.path.exists(asset_mod.LEDGER_ASSET_FILE)
+
+
+def test_update_asset_report_empty(asset_mod, monkeypatch):
+    monkeypatch.setattr(
+        asset_mod.storage, "load_entries_from_db", lambda: {}, raising=False
+    )
+    df = asset_mod.update_asset_report(days=7, write_csv=False)
+    assert df.empty
+
+
+def test_update_asset_report_with_data(asset_mod):
+    import time as _t
+    import os
+
+    now = _t.time()
+    entries = {
+        "b1": _entry("r1", "BTC", 0.01, time_=now),
+        "s1": _entry("r1", "ZEUR", -100.0, time_=now),
+    }
+    asset_mod.storage.load_entries_from_db = lambda: entries
+    df = asset_mod.update_asset_report(days=7, write_csv=True)
+    assert not df.empty
+    assert os.path.exists(asset_mod.LEDGER_ASSET_FILE)

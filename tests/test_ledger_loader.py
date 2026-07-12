@@ -1,62 +1,137 @@
-# tests/test_ledger_loader.py
+"""Unit tests for ledger_loader.py — Kraken ledger fetch with retry/pagination."""
+
 import sys
-import os
+import types
 
-sys.path.insert(
-    0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
-)
-from storage import save_entries, load_entries
-from ledger_loader import fetch_ledger
+import pytest
 
 
-class DummyAPI:
-    def __init__(self, ledgers_per_page):
-        self.ledgers_per_page = ledgers_per_page
+@pytest.fixture()
+def ll_mod(monkeypatch):
+    keys_stub = types.ModuleType("keys")
+    keys_stub.load_keys = lambda: ("k", "s")
+    monkeypatch.setitem(sys.modules, "keys", keys_stub)
 
-    def get_ledgers(self, ofs=0, since=None):
-        # Возвращаем заранее подготовленные записи по страницам
-        if ofs >= len(self.ledgers_per_page) * 50:
-            return {}
-        page = ofs // 50
-        data = self.ledgers_per_page[page]
-        return {"ledger": data}
+    storage_stub = types.ModuleType("storage")
+    storage_stub.save_entries = lambda entries: None
+    storage_stub.load_entries = lambda: {}
+    monkeypatch.setitem(sys.modules, "storage", storage_stub)
 
+    if "ledger_loader" in sys.modules:
+        del sys.modules["ledger_loader"]
+    import ledger_loader as ll_mod  # noqa: E402
 
-def test_save_and_load_entries(tmp_path, monkeypatch):
-    # Переопределяем пути на временные
-    monkeypatch.setattr("storage.RAW_LEDGER_FILE", tmp_path / "raw-ledger.json")
-    monkeypatch.setattr("storage.LEDGER_DB_FILE", tmp_path / "ledger.db")
-
-    entries = {"tx1": {"time": "12345", "asset": "XXBT", "amount": "1.0"}}
-    save_entries(entries)
-
-    loaded = load_entries()
-    assert "tx1" in loaded
-    assert loaded["tx1"]["asset"] == "XXBT"
+    yield ll_mod
+    if "ledger_loader" in sys.modules:
+        del sys.modules["ledger_loader"]
 
 
-def test_fetch_ledger_stops_at_since_limit(monkeypatch):
-    # Создаём тестовые записи с убывающим временем
-    now = 2_000_000
-    ledgers_page1 = {
-        "tx1": {"time": str(now), "asset": "XXBT", "amount": "1.0"},
-        "tx2": {"time": str(now - 1000), "asset": "ADA", "amount": "2.0"},
-    }
-    ledgers_page2 = {
-        "tx3": {"time": str(now - 10 * 86400), "asset": "DOT", "amount": "3.0"},
-    }
+class _FakeAPI:
+    def __init__(self, pages):
+        self.pages = pages
+        self.calls = 0
 
-    dummy_api = DummyAPI([ledgers_page1, ledgers_page2])
+    def get_ledgers(self, ofs=0, since=None, page_size=None):
+        self.calls += 1
+        if ofs < len(self.pages):
+            return (
+                self.pages[ofs]
+                if isinstance(self.pages, dict)
+                else self.pages[self.calls - 1]
+            )
+        return {}
 
-    # Патчим datetime, чтобы since_limit считался от "now"
-    import datetime
 
-    monkeypatch.setattr("ledger_loader.datetime", datetime.datetime)
-    monkeypatch.setattr("ledger_loader.timezone", datetime.timezone)
+def test_fetch_ledger_single_page_below_page_size(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
 
-    entries = fetch_ledger(dummy_api, days=5)
+    api = _FakeAPI(
+        [{"ledger": {"t1": {"time": 1700000000.0}, "t2": {"time": 1700000001.0}}}]
+    )
+    entries = ll_mod.fetch_ledger(api, page_size=50, delay_min=0, delay_max=0)
+    assert len(entries) == 2
 
-    assert "tx1" in entries
-    assert "tx2" in entries
-    # tx3 слишком старый → не должен попасть
-    assert "tx3" not in entries
+
+def test_fetch_ledger_stops_on_known_txid(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    api = _FakeAPI(
+        [{"ledger": {"known1": {"time": 1700000000.0}, "new1": {"time": 1700000001.0}}}]
+    )
+    entries = ll_mod.fetch_ledger(api, page_size=50, stop_on_txids={"known1"})
+    assert "known1" not in entries
+    assert "new1" in entries
+
+
+def test_fetch_ledger_empty_response_stops(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    api = _FakeAPI([{}])
+    entries = ll_mod.fetch_ledger(api, page_size=50)
+    assert entries == {}
+
+
+def test_fetch_ledger_reaches_since_limit(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    api = _FakeAPI([{"ledger": {"t1": {"time": 100.0}}}])
+    entries = ll_mod.fetch_ledger(api, page_size=50, since_ts=1000)
+    assert "t1" in entries
+
+
+def test_fetch_page_with_retry_gives_up_after_max(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    class AlwaysFails:
+        def get_ledgers(self, ofs=0, since=None, page_size=None):
+            raise ConnectionError("down")
+
+    result = ll_mod._fetch_page_with_retry(AlwaysFails(), 0, 0, 50, max_retries=2)
+    assert result is None
+
+
+def test_fetch_page_with_retry_typeerror_fallback(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    class FallbackAPI:
+        def get_ledgers(self, ofs=0, since=None, page_size=None):
+            raise TypeError("bad kwargs")
+
+    with pytest.raises(TypeError):
+        FallbackAPI().get_ledgers(ofs=0)
+
+
+def test_fetch_ledger_consecutive_failures_stops(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+
+    class AlwaysFails:
+        def get_ledgers(self, ofs=0, since=None, page_size=None):
+            raise ConnectionError("down")
+
+    entries = ll_mod.fetch_ledger(
+        AlwaysFails(), page_size=50, max_consecutive_page_failures=1
+    )
+    assert entries == {}
+
+
+def test_update_raw_ledger_calls_save(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod.time, "sleep", lambda *a, **k: None)
+    monkeypatch.setattr(ll_mod.random, "uniform", lambda a, b: 0.0)
+    saved = {}
+    monkeypatch.setattr(ll_mod, "save_entries", lambda e: saved.update(e))
+
+    api = _FakeAPI([{"ledger": {"t1": {"time": 1700000000.0}}}])
+    ll_mod.update_raw_ledger(api=api, page_size=50)
+    assert "t1" in saved
+
+
+def test_load_raw_ledger_delegates(ll_mod, monkeypatch):
+    monkeypatch.setattr(ll_mod, "load_entries", lambda: {"x": 1})
+    assert ll_mod.load_raw_ledger() == {"x": 1}

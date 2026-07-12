@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.0.0] - 2026-07-12
+### Added
+- **`update.py`**: new incremental ledger updater — detects missing date ranges against the existing `ledger.db` (before earliest and after latest stored date), fetches only the gaps via `ledger_loader.fetch_ledger()`, and skips already-known txids. Supports `--fromdate`, `--todate` (relative `Nd`/`Nm` or absolute `YYYY-MM-DD`/`DD.MM.YYYY`), `--dry-run`, `--page-size`, `--delay-min`, `--delay-max`, and `--no-summary`.
+- **`portfolio_summary.py`**: new FIFO cost-basis engine ported from the Google Sheets Apps Script pipeline. Computes running average cost per asset (`run_fifo`), strips Kraken wallet-suffixes (`.F`/`.B`/`.S`/`.M`/`.P`) so balances roll up per ticker, excludes `transfer` entries (spot↔staking moves) from FIFO, and adds an EMA7 + linear-regression price forecast (`forecast_prices`) with 7-day and 30-day projections. Persists results to a disposable `summary` SQLite table (`save_summary`, `update_summary`).
+- **`portfolio_summary_report.py`**: new CSV/CLI report layer built on top of `portfolio_summary.py`. Adds Google-Sheets-style derived analytics per asset: Sell +25/35/50/75% targets, Trend, Upside %, Volatility Score, Recovery Strength, Confidence (HIGH/MEDIUM/LOW), Regime (BULLISH/BULLISH RECOVERY/WEAK-SIDEWAYS/BEARISH), Signal (ACCUMULATE/BUY LIGHT/REDUCE/HIGH RISK/HOLD), and a composite Asset Color Score. Supports `--csv` and `--no-recompute` (read last persisted summary instead of recomputing FIFO).
+- **`balance_reconciliation.py`**: new cross-check module that compares FIFO-computed remaining amount/price against the latest live Kraken balance snapshot CSV, flags mismatches beyond tolerance, and writes `reconciliation_report.csv`. Runs automatically as a non-fatal validation step after every `update.py` run.
+- **`validators.py`**: new pre-flight validation module — `check_db_exists`, `check_db_schema`, `check_api_key(s)`, combined `validate_for_update()` (used by `update.py` before any API call), plus post-update row-count checks (`db_row_count`, `validate_after_update`).
+- Full pytest suite (171 tests) covering `update.py`, `portfolio_summary.py`, `portfolio_summary_report.py`, `balance_reconciliation.py`, and `validators.py`, with coverage reporting via `pytest --cov`.
+
+### Fixed
+- `validators.check_db_schema()` now catches the full `sqlite3.DatabaseError` hierarchy instead of only `OperationalError`, so corrupted/non-SQLite files are correctly reported as `SchemaInvalidError` instead of leaking a raw `sqlite3.DatabaseError`.
+- `portfolio_summary.py`: renamed ambiguous loop variable `l` to `leg_item` in FIFO leg-aggregation sums (ruff E741).
+- Resolved test-suite import/collection failures caused by module-level `sys.modules` stubbing leaking across test files; all fixtures now scope monkeypatched attributes to individual test functions.
+
+
 ## [0.9.4.2] - 2025-10-03
 ### Fixed
 - Prevent from accidentally commit of `ledger.db` or `.master` file by adding `*.db`, `*.master` to `.gitignore`.

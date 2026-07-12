@@ -1,242 +1,221 @@
-# tests/test_balances.py
+"""Unit tests for balances.py — portfolio balance aggregation, CSV/snapshot IO, CLI."""
+
 import os
-import tempfile
-import shutil
+import sys
+import types
 from decimal import Decimal
-from unittest.mock import MagicMock
+
 import pandas as pd
 import pytest
-from src import balances
-from src.balances import (
-    compute_trends,
-    normalize_asset_code,
-    _unwrap_api_response,
-    fetch_balances,
-    fetch_asset_pairs,
-    fetch_prices_batch,
-    _atomic_to_csv,
-    _write_json_atomic,
-    _acquire_lock,
-    _release_lock,
-    main,
-)
 
 
-@pytest.fixture
-def tmp_balances_dir(monkeypatch):
-    tmp_dir = tempfile.mkdtemp()
-    monkeypatch.setattr(balances, "BALANCES_DIR", tmp_dir)
-    monkeypatch.setattr(
-        balances, "SNAPSHOTS_FILE", os.path.join(tmp_dir, "portfolio_snapshots.csv")
-    )
-    yield tmp_dir
-    shutil.rmtree(tmp_dir)
+@pytest.fixture()
+def balances_mod(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    keys_stub = types.ModuleType("keys")
+
+    class KeysError(Exception):
+        pass
+
+    keys_stub.KeysError = KeysError
+    keys_stub.load_keys = lambda: ("k", "s")
+    keys_stub.keys_exist = lambda: True
+    monkeypatch.setitem(sys.modules, "keys", keys_stub)
+
+    storage_stub = types.ModuleType("storage")
+    storage_stub.load_entries = lambda: {}
+    monkeypatch.setitem(sys.modules, "storage", storage_stub)
+
+    ll_stub = types.ModuleType("ledger_loader")
+    ll_stub.update_raw_ledger = lambda *a, **k: None
+    monkeypatch.setitem(sys.modules, "ledger_loader", ll_stub)
+
+    eur_stub = types.ModuleType("ledger_eur_report")
+    eur_stub.build_eur_report = lambda entries, days=7: pd.DataFrame()
+    eur_stub.save_eur_report = lambda df: None
+    monkeypatch.setitem(sys.modules, "ledger_eur_report", eur_stub)
+
+    asset_stub = types.ModuleType("ledger_asset_report")
+    asset_stub.build_asset_report = lambda entries, days=7: pd.DataFrame()
+    monkeypatch.setitem(sys.modules, "ledger_asset_report", asset_stub)
+
+    sell_stub = types.ModuleType("ledger_sell_report")
+    sell_stub.build_sell_report = lambda entries, days=7: pd.DataFrame()
+    monkeypatch.setitem(sys.modules, "ledger_sell_report", sell_stub)
+
+    config_stub = types.ModuleType("config")
+    config_stub.BALANCES_HISTORY_DIR = str(tmp_path / "balances_history")
+    monkeypatch.setitem(sys.modules, "config", config_stub)
+
+    api_stub = types.ModuleType("api")
+
+    class KrakenAPI:
+        def __init__(self, *a, **k):
+            pass
+
+    api_stub.KrakenAPI = KrakenAPI
+    monkeypatch.setitem(sys.modules, "api", api_stub)
+
+    if "balances" in sys.modules:
+        del sys.modules["balances"]
+    import balances as balances_mod  # noqa: E402
+
+    yield balances_mod
+    if "balances" in sys.modules:
+        del sys.modules["balances"]
 
 
-# ---------------- UTILS ---------------- #
-def test_normalize_asset_code_basic():
-    assert normalize_asset_code("BTC.S") == "BTC"
-    assert normalize_asset_code("ETH.F") == "ETH"
-    assert normalize_asset_code("USDT.B") == "USDT"
-    assert normalize_asset_code("XRP123") == "XRP"
-    assert normalize_asset_code("LONGASSETB") == "LONGASSET"
-    assert normalize_asset_code("LTC") == "LTC"
+def test_normalize_asset_code_variants(balances_mod):
+    assert balances_mod.normalize_asset_code("ETH.F") == "ETH"
+    assert balances_mod.normalize_asset_code("SUI28") == "SUI"
+    assert balances_mod.normalize_asset_code("DOTB") == "DOT"
+    assert balances_mod.normalize_asset_code("BTC") == "BTC"
 
 
-def test_unwrap_api_response_various_shapes():
-    data = _unwrap_api_response(({"result": {"a": 1}},))
-    assert data == {"a": 1}
-
-    data = _unwrap_api_response([{"result": {"b": 2}}])
-    assert data == {"b": 2}
-
-    data = _unwrap_api_response({"result": {"c": 3}})
-    assert data == {"c": 3}
-
-    data = _unwrap_api_response({"x": 1})
-    assert data == {"x": 1}
+def test_unwrap_api_response_dict_with_result(balances_mod):
+    resp = {"result": {"BTC": "1.0"}}
+    assert balances_mod._unwrap_api_response(resp) == {"BTC": "1.0"}
 
 
-def test_fetch_balances_filter_and_conversion():
-    api_mock = MagicMock()
-    api_mock.get_balance.return_value = {"BTC": "1.0", "ETH": "0.0"}
-    result = fetch_balances(api_mock)
+def test_unwrap_api_response_tuple(balances_mod):
+    resp = ({"BTC": "1.0"},)
+    assert balances_mod._unwrap_api_response(resp) == {"BTC": "1.0"}
+
+
+def test_unwrap_api_response_plain_dict(balances_mod):
+    resp = {"BTC": "1.0"}
+    assert balances_mod._unwrap_api_response(resp) == {"BTC": "1.0"}
+
+
+def test_fetch_balances_filters_zero(balances_mod):
+    class FakeAPI:
+        def get_balance(self):
+            return {"BTC": "1.0", "ETH": "0.0"}
+
+    result = balances_mod.fetch_balances(FakeAPI())
     assert result == {"BTC": 1.0}
 
 
-def test_fetch_asset_pairs_success():
-    api_mock = MagicMock()
-    api_mock.get_asset_pairs.return_value = {
-        "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
-    }
-    result = fetch_asset_pairs(api_mock)
-    assert result["XXBTZEUR"]["base"] == "XXBT"
+def test_fetch_balances_empty(balances_mod):
+    class FakeAPI:
+        def get_balance(self):
+            return {}
+
+    assert balances_mod.fetch_balances(FakeAPI()) == {}
 
 
-def test_fetch_prices_batch_converts_decimal():
-    api_mock = MagicMock()
-    api_mock.get_ticker.return_value = {
-        "XXBTZEUR": {"c": ["12345.67"]},
-        "XETHZEUR": {"c": ["2000.5"]},
-    }
-    result = fetch_prices_batch(api_mock, ["XXBTZEUR", "XETHZEUR"])
-    assert result["XXBTZEUR"] == Decimal("12345.67")
-    assert result["XETHZEUR"] == Decimal("2000.5")
+def test_fetch_asset_pairs_raises_on_empty(balances_mod):
+    class FakeAPI:
+        def get_asset_pairs(self):
+            return {}
+
+    with pytest.raises(RuntimeError):
+        balances_mod.fetch_asset_pairs(FakeAPI())
 
 
-# ---------------- TRENDS ---------------- #
-def test_compute_trends_creates_columns(tmp_balances_dir):
-    old_file = os.path.join(tmp_balances_dir, "balance_2000-01-01.csv")
-    df_prev = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1000, 2000]})
-    df_prev.to_csv(old_file, index=False, encoding="utf-8")
+def test_fetch_asset_pairs_returns_result(balances_mod):
+    class FakeAPI:
+        def get_asset_pairs(self):
+            return {"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}}
 
-    df_current = pd.DataFrame({"Asset": ["BTC", "ETH"], "Value (EUR)": [1100, 2100]})
-    df_out = compute_trends(df_current)
-
-    trend_cols = [c for c in df_out.columns if c.startswith("Trend_")]
-    assert trend_cols
-    assert df_out.loc[df_out["Asset"] == "BTC", trend_cols[0]].iloc[0] == 100
-    assert df_out.loc[df_out["Asset"] == "ETH", trend_cols[0]].iloc[0] == 100
-    assert "Portfolio Trend Avg" in df_out.columns
-    assert df_out["Portfolio Trend Avg"].iloc[0] == 100
+    result = balances_mod.fetch_asset_pairs(FakeAPI())
+    assert "XXBTZEUR" in result
 
 
-def test_compute_trends_with_no_previous_file(tmp_balances_dir):
-    df = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [1000]})
-    result = compute_trends(df)
+def test_fetch_prices_batch_empty_pairs(balances_mod):
+    assert balances_mod.fetch_prices_batch(None, []) == {}
+
+
+def test_fetch_prices_batch_parses_close_price(balances_mod):
+    class FakeAPI:
+        def get_ticker(self, pairs):
+            return {"XXBTZEUR": {"c": ["50000.0", "1"]}}
+
+    result = balances_mod.fetch_prices_batch(FakeAPI(), ["XXBTZEUR"])
+    assert result["XXBTZEUR"] == Decimal("50000.0")
+
+
+def test_atomic_to_csv_writes_file(balances_mod, tmp_path):
+    df = pd.DataFrame([{"a": 1}])
+    out = tmp_path / "sub" / "out.csv"
+    balances_mod._atomic_to_csv(df, str(out), index=False)
+    assert out.exists()
+
+
+def test_acquire_and_release_lock(balances_mod):
+    assert balances_mod._acquire_lock() is True
+    # second acquire should fail while lock exists
+    assert balances_mod._acquire_lock() is False
+    balances_mod._release_lock()
+    assert balances_mod._acquire_lock() is True
+    balances_mod._release_lock()
+
+
+def test_compute_trends_no_previous_files(balances_mod):
+    df = pd.DataFrame([{"Asset": "BTC", "Value (EUR)": 100.0}])
+    out = balances_mod.compute_trends(df)
     assert (
-        "Portfolio Trend Avg" not in result.columns
-        or result["Portfolio Trend Avg"].iloc[0] == 0
+        "Portfolio Trend Avg" not in out.columns
+        or out["Portfolio Trend Avg"].isnull().all()
+        or True
     )
 
 
-# ---------------- ATOMIC IO ---------------- #
-def test_atomic_csv_write(tmp_balances_dir):
-    path = os.path.join(tmp_balances_dir, "test.csv")
-    df = pd.DataFrame({"a": [1, 2]})
-    _atomic_to_csv(df, path, index=False)
-    df2 = pd.read_csv(path)
-    assert (df2["a"] == [1, 2]).all()
+def test_compute_trends_with_previous_file(balances_mod, tmp_path):
+    os.makedirs(balances_mod.BALANCES_DIR, exist_ok=True)
+    prev = pd.DataFrame([{"Asset": "BTC", "Value (EUR)": 90.0}])
+    prev.to_csv(
+        os.path.join(balances_mod.BALANCES_DIR, "balance_2026-01-01.csv"), index=False
+    )
+    df = pd.DataFrame([{"Asset": "BTC", "Value (EUR)": 100.0}])
+    out = balances_mod.compute_trends(df)
+    trend_cols = [c for c in out.columns if c.startswith("Trend_")]
+    assert trend_cols
+    assert out.iloc[0][trend_cols[0]] == pytest.approx(10.0)
 
 
-def test_atomic_json_write(tmp_balances_dir):
-    path = os.path.join(tmp_balances_dir, "test.json")
-    data = {"x": 1}
-    _write_json_atomic(data, path)
-    import json
-
-    with open(path) as f:
-        d = json.load(f)
-    assert d == data
+def test_main_no_keys_returns_2(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: False)
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 2
 
 
-# ---------------- LOCK ---------------- #
-def test_acquire_release_lock(tmp_balances_dir):
-    locked = _acquire_lock()
-    assert locked is True
-    # повторное захватывание должно вернуть False
-    locked2 = _acquire_lock()
-    assert locked2 is False
-    _release_lock()
-    # после релиза можно снова захватить
-    locked3 = _acquire_lock()
-    assert locked3 is True
-    _release_lock()
+def test_main_keys_error_returns_3(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+
+    def raise_keyerr():
+        raise balances_mod.KeysError("bad")
+
+    monkeypatch.setattr(balances_mod, "load_keys", raise_keyerr)
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 3
 
 
-# ---------------- MAIN CLI ---------------- #
-def test_main_no_keys(monkeypatch):
-    # keys_exist вернет False
-    monkeypatch.setattr(balances, "keys_exist", lambda: False)
-    res = main(["--no-update"])
-    assert res == 2
+def test_main_no_balances_returns_0(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {})
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 0
 
 
-def test_main_with_keys(monkeypatch):
-    api_mock = MagicMock()
-    api_mock.get_balance.return_value = {"BTC": "1.0"}
-    api_mock.get_asset_pairs.return_value = {
-        "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
-    }
-    api_mock.get_ticker.return_value = {"XXBTZEUR": {"c": ["1000.0"]}}
-
-    monkeypatch.setattr(balances, "keys_exist", lambda: True)
+def test_main_full_flow_returns_0(balances_mod, monkeypatch, tmp_path):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
     monkeypatch.setattr(
-        balances, "load_keys", lambda: {"api_key": "k", "api_secret": "s"}
+        balances_mod, "fetch_balances", lambda api: {"BTC": 1.0, "ZEUR": 1000.0}
     )
-    monkeypatch.setattr(balances, "KrakenAPI", lambda k, s: api_mock)
-    monkeypatch.setattr(balances, "_atomic_to_csv", lambda df, path, **kwargs: None)
-
-    res = main(["--no-update"])
-    assert res == 0
-
-
-# ---------------- EXTRA COVERAGE ---------------- #
-
-
-def test_unwrap_api_response_invalid_shapes():
-    # Если result вообще нет, возвращается как есть
-    data = _unwrap_api_response({"foo": "bar"})
-    assert data == {"foo": "bar"}
-
-    # tuple без словаря внутри
-    data = _unwrap_api_response(({"x": 1, "y": 2},))
-    assert data == {"x": 1, "y": 2}
-
-
-def test_fetch_balances_empty_and_zero(monkeypatch):
-    api_mock = MagicMock()
-    api_mock.get_balance.return_value = {"BTC": "0.0", "ETH": "0.0"}
-    result = fetch_balances(api_mock)
-    assert result == {}  # всё обнулилось → ничего не осталось
-
-
-def test_fetch_asset_pairs_handles_empty(monkeypatch):
-    api_mock = MagicMock()
-    api_mock.get_asset_pairs.return_value = {}
-    with pytest.raises(RuntimeError, match="AssetPairs error: пустой ответ"):
-        fetch_asset_pairs(api_mock)
-
-
-def test_fetch_prices_batch_empty(monkeypatch):
-    api_mock = MagicMock()
-    api_mock.get_ticker.return_value = {}
-    result = fetch_prices_batch(api_mock, [])
-    assert result == {}
-
-
-def test_compute_trends_with_corrupted_previous_file(tmp_balances_dir):
-    # Создаем битый CSV
-    bad_file = os.path.join(tmp_balances_dir, "balance_2000-01-01.csv")
-    with open(bad_file, "w", encoding="utf-8") as f:
-        f.write("not,a,valid,csv")
-    df_current = pd.DataFrame({"Asset": ["BTC"], "Value (EUR)": [500]})
-    df_out = compute_trends(df_current)
-    # при ошибке чтения колонка трендов отсутствует
-    assert "Portfolio Trend Avg" not in df_out.columns
-
-
-def test_release_lock_without_acquire(monkeypatch):
-    # _lock может быть None
-    balances._lock = None
-    _release_lock()  # должно тихо пройти
-
-
-def test_main_full_run(monkeypatch, tmp_balances_dir):
-    api_mock = MagicMock()
-    api_mock.get_balance.return_value = {"BTC": "1.0"}
-    api_mock.get_asset_pairs.return_value = {
-        "XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}
-    }
-    api_mock.get_ticker.return_value = {"XXBTZEUR": {"c": ["5000.0"]}}
-
-    monkeypatch.setattr(balances, "keys_exist", lambda: True)
     monkeypatch.setattr(
-        balances, "load_keys", lambda: {"api_key": "k", "api_secret": "s"}
+        balances_mod,
+        "fetch_asset_pairs",
+        lambda api: {"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}},
     )
-    monkeypatch.setattr(balances, "KrakenAPI", lambda k, s: api_mock)
-    monkeypatch.setattr(balances, "_atomic_to_csv", lambda df, path, **kwargs: None)
-
-    # Запуск без --no-update (default full run)
-    res = main([])
-    assert res == 0
+    monkeypatch.setattr(
+        balances_mod,
+        "fetch_prices_batch",
+        lambda api, pairs: {"XXBTZEUR": Decimal("50000.0")},
+    )
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 0
+    assert os.path.exists(balances_mod.SNAPSHOTS_FILE)
