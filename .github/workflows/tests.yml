@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13.0']
 
     steps:
       - name: Checkout code
@@ -44,7 +44,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          PYTHONPATH=src pytest --cov=src --cov-report=term --cov-report=xml --cov-fail-under=70
+          PYTHONPATH=src pytest --cov=src --cov=update --cov=start --cov-report=term --cov-report=xml --cov-fail-under=70
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5

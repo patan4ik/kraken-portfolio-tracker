@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0.1] - 2026-07-14
+### Changed
+- Extended the GitHub Actions Python test matrix to include 3.13.0 alongside 3.11 and 3.12.
+- Expanded coverage measurement to include root-level `update.py` and `start.py`, previously only `src/` was measured.
+- Synchronized `.pre-commit-config.yaml` Black (25.1.0) and Ruff (0.12.12) pins with `requirements.txt`, so local pre-commit hooks match CI exactly.
+- Added `.python-version` (3.13.0) to keep local development environments aligned with the CI matrix's newest version.
+
+### Notes
+- `--cov-fail-under` remains at 70 for this release; raising it to 80 is planned as a follow-up once coverage on `update.py`/`start.py` is confirmed via CI.
+- Codecov project-level target (85%, threshold 5%) in `codecov.yml` is unchanged and intentionally stricter than the CI hard gate.
+
 ## [1.0.0.0] - 2026-07-12
 ### Added
 - **`update.py`**: new incremental ledger updater — detects missing date ranges against the existing `ledger.db` (before earliest and after latest stored date), fetches only the gaps via `ledger_loader.fetch_ledger()`, and skips already-known txids. Supports `--fromdate`, `--todate` (relative `Nd`/`Nm` or absolute `YYYY-MM-DD`/`DD.MM.YYYY`), `--dry-run`, `--page-size`, `--delay-min`, `--delay-max`, and `--no-summary`.

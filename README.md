@@ -162,11 +162,11 @@ sqlite> SELECT COUNT(*) FROM ledger;
 ```
 
 ## Running Tests
-Run the unit tests:
+Run the unit tests locally (Python 3.13.0 recommended, matching CI):
 ```bash
 pytest -v tests/
-pytest --cov=. --cov-report=term-missing   # coverage in terminal
-pytest --cov=. --cov-report=xml            # coverage for CI (e.g. Codecov)
+PYTHONPATH=src pytest --cov=src --cov=update --cov=start --cov-report=term-missing    # coverage in terminal
+PYTHONPATH=src pytest --cov=src --cov=update --cov=start --cov-report=xml            # coverage for CI (e.g. Codecov)
 ```
 
 The suite (171 tests) covers all `/src` modules plus `update.py`, `start.py`, `validators.py`, `portfolio_summary.py`, `portfolio_summary_report.py`, and `balance_reconciliation.py`. `tests/conftest.py` adds both the project root and `src/` to `sys.path` so root-level scripts and `src/` modules can be imported directly in tests without stubbing.
@@ -187,6 +187,10 @@ Pre-commit hooks are configured — enable them with:
 # Now every time you run git commit, Black and Ruff will automatically check your files before they are committed — so your CI will stay green without extra work.
 pre-commit install
 ```
+
+## Continuous Integration
+GitHub Actions runs on Python 3.11, 3.12, and 3.13.0 for every push and pull request to `main`.
+Each run enforces: Black formatting check, Ruff linting, and pytest with coverage across `src/`, `update.py`, and `start.py` (minimum 70%, uploaded to Codecov).
 
 ## Requirements
 
