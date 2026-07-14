@@ -7,6 +7,142 @@ from datetime import date, timedelta
 import pytest
 import update  # noqa: E402  (resolved via tests/conftest.py adding ROOT to sys.path)
 import validators  # noqa: E402  (real module in src/, added to sys.path by conftest.py)
+import pandas as pd
+
+
+def test_run_portfolio_summary_success(monkeypatch):
+    monkeypatch.setattr(update.balances, "main", lambda argv=None: 0)
+    monkeypatch.setattr(
+        update.portfolio_summary_report,
+        "update_summary_report",
+        lambda write_csv=True: pd.DataFrame({"asset": ["BTC"]}),
+    )
+    monkeypatch.setattr(update.portfolio_summary, "update_summary", lambda: {"BTC": {}})
+    monkeypatch.setattr(
+        update.balance_reconciliation,
+        "run_reconciliation",
+        lambda raw, write_csv=True: None,
+    )
+    update._run_portfolio_summary()  # should not raise
+
+
+def test_run_portfolio_summary_empty_result_logs_warning(monkeypatch, caplog):
+    monkeypatch.setattr(update.balances, "main", lambda argv=None: 0)
+    monkeypatch.setattr(
+        update.portfolio_summary_report,
+        "update_summary_report",
+        lambda write_csv=True: pd.DataFrame(),
+    )
+    update._run_portfolio_summary()
+    assert "no rows" in caplog.text.lower()
+
+
+def test_run_portfolio_summary_balances_exception_nonfatal(monkeypatch):
+    def boom(argv=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(update.balances, "main", boom)
+    monkeypatch.setattr(
+        update.portfolio_summary_report,
+        "update_summary_report",
+        lambda write_csv=True: pd.DataFrame({"asset": ["BTC"]}),
+    )
+    monkeypatch.setattr(update.portfolio_summary, "update_summary", lambda: {})
+    monkeypatch.setattr(
+        update.balance_reconciliation,
+        "run_reconciliation",
+        lambda raw, write_csv=True: None,
+    )
+    update._run_portfolio_summary()  # non-fatal, must not propagate
+
+
+def _make_ledger_db(path, rows):
+    conn = sqlite3.connect(str(path))
+    conn.execute("CREATE TABLE ledger (date_iso TEXT)")
+    for iso in rows:
+        conn.execute("INSERT INTO ledger VALUES (?)", (iso,))
+    conn.commit()
+    conn.close()
+
+
+def test_main_already_up_to_date_runs_summary(tmp_path, monkeypatch):
+    db = tmp_path / "ledger.db"
+    _make_ledger_db(db, ["2026-01-01T00:00:00+00:00", "2026-07-14T00:00:00+00:00"])
+    monkeypatch.setattr(update.storage, "LEDGER_DB_FILE", str(db))
+    monkeypatch.setattr(update, "validate_for_update", lambda path: None)
+    called = {}
+    monkeypatch.setattr(
+        update, "_run_portfolio_summary", lambda: called.setdefault("ran", True)
+    )
+    rc = update.main(["--fromdate", "2026-01-01", "--todate", "2026-07-14"])
+    assert rc == 0 and called.get("ran") is True
+
+
+def test_main_no_summary_flag_skips_summary(tmp_path, monkeypatch):
+    db = tmp_path / "ledger.db"
+    _make_ledger_db(db, ["2026-01-01T00:00:00+00:00", "2026-07-14T00:00:00+00:00"])
+    monkeypatch.setattr(update.storage, "LEDGER_DB_FILE", str(db))
+    monkeypatch.setattr(update, "validate_for_update", lambda path: None)
+    called = {}
+    monkeypatch.setattr(
+        update, "_run_portfolio_summary", lambda: called.setdefault("ran", True)
+    )
+    rc = update.main(
+        ["--fromdate", "2026-01-01", "--todate", "2026-07-14", "--no-summary"]
+    )
+    assert rc == 0 and "ran" not in called
+
+
+def test_main_fetches_filters_and_persists(tmp_path, monkeypatch):
+    db = tmp_path / "ledger.db"
+    _make_ledger_db(db, ["2026-06-01T00:00:00+00:00", "2026-06-10T00:00:00+00:00"])
+    monkeypatch.setattr(update.storage, "LEDGER_DB_FILE", str(db))
+    monkeypatch.setattr(update, "validate_for_update", lambda path: None)
+    monkeypatch.setattr(update, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(update.storage, "load_entries_from_db", lambda: {})
+    fake_entry = {"tx1": {"time": 1781000000.0}}  # inside requested window
+    monkeypatch.setattr(
+        update.ledger_loader, "fetch_ledger", lambda *a, **k: fake_entry
+    )
+    monkeypatch.setattr(
+        update.storage, "save_update_entries", lambda entries: len(entries)
+    )
+    monkeypatch.setattr(update, "_run_portfolio_summary", lambda: None)
+    rc = update.main(["--fromdate", "2026-06-11", "--todate", "2026-06-20"])
+    assert rc == 0
+
+
+def test_main_dry_run_never_fetches(tmp_path, monkeypatch):
+    db = tmp_path / "ledger.db"
+    _make_ledger_db(db, ["2026-06-01T00:00:00+00:00", "2026-06-10T00:00:00+00:00"])
+    monkeypatch.setattr(update.storage, "LEDGER_DB_FILE", str(db))
+    monkeypatch.setattr(update, "validate_for_update", lambda path: None)
+    monkeypatch.setattr(update, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(update.storage, "load_entries_from_db", lambda: {})
+    fetch_called = {"n": 0}
+    monkeypatch.setattr(
+        update.ledger_loader,
+        "fetch_ledger",
+        lambda *a, **k: fetch_called.update(n=1) or {},
+    )
+    rc = update.main(
+        ["--fromdate", "2026-05-01", "--todate", "2026-06-20", "--dry-run"]
+    )
+    assert rc == 0 and fetch_called["n"] == 0
+
+
+def test_main_keys_error_after_validation_returns_1(tmp_path, monkeypatch):
+    db = tmp_path / "ledger.db"
+    _make_ledger_db(db, ["2026-06-01T00:00:00+00:00", "2026-06-10T00:00:00+00:00"])
+    monkeypatch.setattr(update.storage, "LEDGER_DB_FILE", str(db))
+    monkeypatch.setattr(update, "validate_for_update", lambda path: None)
+
+    def raise_keys():
+        raise update.KeysError("no keys")
+
+    monkeypatch.setattr(update, "load_keys", raise_keys)
+    rc = update.main(["--fromdate", "2026-05-01", "--todate", "2026-06-20"])
+    assert rc == 1
 
 
 # ---------------------------------------------------------------------------

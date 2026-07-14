@@ -6,6 +6,11 @@ import types
 
 import pandas as pd
 import pytest
+import pathlib
+
+_TESTS_DIR = pathlib.Path(__file__).resolve().parent
+_PROJECT_ROOT = _TESTS_DIR.parent  # adjust if start.py lives elsewhere
+_START_PY = _PROJECT_ROOT / "start.py"
 
 
 @pytest.fixture()
@@ -82,18 +87,12 @@ def start_mod(tmp_path, monkeypatch):
 
 
 def _load_start_module():
-    """Load start.py as a module named 'start' from the attached file path."""
+    """Load start.py as a module named 'start' from its real repo location."""
     import importlib.util
 
-    candidates = ["start.py", "/mnt/data/start.py", "./start.py"]
-    path = None
-    for c in candidates:
-        if os.path.exists(c):
-            path = c
-            break
-    if path is None:
-        pytest.skip("start.py not found on filesystem for direct import")
-    spec = importlib.util.spec_from_file_location("start", path)
+    if not _START_PY.exists():
+        pytest.skip(f"start.py not found at {_START_PY}")
+    spec = importlib.util.spec_from_file_location("start", str(_START_PY))
     mod = importlib.util.module_from_spec(spec)
     sys.modules["start"] = mod
     spec.loader.exec_module(mod)

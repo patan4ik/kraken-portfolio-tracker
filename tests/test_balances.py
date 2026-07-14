@@ -219,3 +219,109 @@ def test_main_full_flow_returns_0(balances_mod, monkeypatch, tmp_path):
     rc = balances_mod.main(["--no-update"])
     assert rc == 0
     assert os.path.exists(balances_mod.SNAPSHOTS_FILE)
+
+
+def test_main_load_keys_filenotfound_returns_2(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+
+    def raise_fnf():
+        raise FileNotFoundError("no key file")
+
+    monkeypatch.setattr(balances_mod, "load_keys", raise_fnf)
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 2
+
+
+def test_main_load_keys_unexpected_exception_returns_4(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+
+    def raise_generic():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(balances_mod, "load_keys", raise_generic)
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 4
+
+
+def test_main_unexpected_keys_format_returns_4(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: 12345)  # not dict/tuple
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 4
+
+
+def test_main_update_raw_ledger_exception_nonfatal(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+
+    def raise_update(days=7):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(balances_mod, "update_raw_ledger", raise_update)
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {})
+    rc = balances_mod.main([])  # no --no-update, so update path is exercised
+    assert rc == 0
+
+
+def test_main_staked_asset_detected(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {"ETH.S": 2.0})
+    monkeypatch.setattr(balances_mod, "fetch_asset_pairs", lambda api: {})
+    monkeypatch.setattr(balances_mod, "fetch_prices_batch", lambda api, pairs: {})
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 0
+
+
+def test_main_matched_pair_nonzero_price(balances_mod, monkeypatch):
+    from decimal import Decimal
+
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {"XBT": 1.0})
+    monkeypatch.setattr(
+        balances_mod,
+        "fetch_asset_pairs",
+        lambda api: {"XXBTZEUR": {"base": "XXBT", "quote": "ZEUR"}},
+    )
+    monkeypatch.setattr(
+        balances_mod,
+        "fetch_prices_batch",
+        lambda api, pairs: {"XXBTZEUR": Decimal("50000.0")},
+    )
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 0
+
+
+def test_main_total_value_zero_guard(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {"XBT": 1.0})
+    monkeypatch.setattr(balances_mod, "fetch_asset_pairs", lambda api: {})
+    monkeypatch.setattr(balances_mod, "fetch_prices_batch", lambda api, pairs: {})
+    rc = balances_mod.main(["--no-update"])
+    assert rc == 0
+
+
+def test_main_snapshot_appends_new_row_second_run(balances_mod, monkeypatch):
+    monkeypatch.setattr(balances_mod, "keys_exist", lambda: True)
+    monkeypatch.setattr(balances_mod, "load_keys", lambda: ("k", "s"))
+    monkeypatch.setattr(balances_mod, "fetch_balances", lambda api: {"BTC": 1.0})
+    monkeypatch.setattr(balances_mod, "fetch_asset_pairs", lambda api: {})
+    monkeypatch.setattr(balances_mod, "fetch_prices_batch", lambda api, pairs: {})
+    balances_mod.main(["--no-update"])  # first run creates SNAPSHOTS_FILE
+    import pandas as pd
+
+    snap = pd.read_csv(balances_mod.SNAPSHOTS_FILE, sep=";")
+    snap.loc[0, "Timestamp"] = "01.01.2000"  # force a different day
+    snap.to_csv(balances_mod.SNAPSHOTS_FILE, sep=";", index=False)
+    rc = balances_mod.main(["--no-update"])  # second run should append
+    assert rc == 0
+    snap2 = pd.read_csv(balances_mod.SNAPSHOTS_FILE, sep=";")
+    assert len(snap2) == 2
+
+
+def test_generate_all_reports_writes_files(balances_mod, tmp_path):
+    balances_mod.generate_all_reports(
+        days=7, update=False
+    )  # update=False skips update_raw_ledger call
