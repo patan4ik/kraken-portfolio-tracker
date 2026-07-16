@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Coverage](https://codecov.io/gh/patan4ik/kraken-portfolio-tracker/branch/main/graph/badge.svg)
-![Version](https://img.shields.io/badge/version-1.0.0.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.0.1.0-brightgreen)
 
 # Kraken Portfolio Tracker
 
@@ -223,13 +223,57 @@ See [requirements.txt](requirements.txt) for full dependency list.
 
 ## Building Executable (Windows)
 
-To build a Windows `.exe` file from the source code:
+Pre-built Windows executables (`start.exe`, `update.exe`) are published with each
+[GitHub Release](https://github.com/patan4ik/kraken-portfolio-tracker/releases).
+No Python installation is required to use them.
+
+### CLI Usage — start.exe
+
+usage: start.exe [-h] [--setup-keys] [--days DAYS]
+
+Kraken Portfolio Tracker
+
+options:
+-h, --help show this help message and exit
+--setup-keys Interactively setup API keys
+--days DAYS How many days to include when updating ledger and building reports (default: 7)
+
+### CLI Usage — update.exe
+
+usage: update.exe [-h] [--fromdate FROMDATE] [--todate TODATE] [--dry-run] [--page-size PAGE_SIZE]
+[--delay-min DELAY_MIN] [--delay-max DELAY_MAX] [--no-summary]
+
+Incremental ledger updater (requires initialized DB)
+
+options:
+-h, --help show this help message and exit
+--fromdate FROMDATE Start date or relative (e.g. 30d). Default: last 7d days
+--todate TODATE End date or relative (default: today)
+--dry-run Do not download; just print plan
+--page-size PAGE_SIZE
+Page size for API calls
+--delay-min DELAY_MIN
+Min delay between API calls
+--delay-max DELAY_MAX
+Max delay between API calls
+--no-summary Skip portfolio FIFO summary/forecast recompute after updating the ledger
+
+### Building from source
+
+Executables are built with PyInstaller (`--onedir` mode, UPX-compressed):
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile balances.py
+
+pyinstaller --onedir --paths src --upx-dir "<path-to-upx>" --exclude-module setuptools --exclude-module pytest --exclude-module pygments --exclude-module wheel --hidden-import storage --hidden-import ledger_loader --hidden-import ledger_eur_report --hidden-import ledger_asset_report --hidden-import ledger_sell_report --hidden-import balances --hidden-import keys --hidden-import config --hidden-import validators --hidden-import api start.py
+
+pyinstaller --onedir --paths src --upx-dir "<path-to-upx>" --exclude-module setuptools --exclude-module pytest --exclude-module pygments --exclude-module wheel \
+  --hidden-import storage --hidden-import ledger_loader --hidden-import portfolio_summary --hidden-import portfolio_summary_report --hidden-import balance_reconciliation --hidden-import balances --hidden-import api --hidden-import keys --hidden-import config --hidden-import validators update.py
 ```
-The output will be in the dist/ folder.
+
+The output for each entrypoint is written to `dist/start/` and `dist/update/` respectively.
+For release packaging, both `--onedir` outputs are merged into a single distributable folder
+and zipped (see release assets on the [Releases page](https://github.com/patan4ik/kraken-portfolio-tracker/releases)).
 
 ## Contributing
 
