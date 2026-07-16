@@ -1,0 +1,4 @@
+﻿pandas-stubs
+types-tabulate
+types-requests
+

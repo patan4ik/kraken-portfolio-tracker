@@ -1,0 +1,46 @@
+name: Lint & Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'   # было 3.12, синхронизировано с локальной CI-матрицей
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install mypy bandit pyupgrade pandas-stubs
+
+      - name: Run mypy
+        continue-on-error: false
+        run: mypy src/ start.py update.py --config-file=pyproject.toml
+
+      - name: Run Bandit
+        continue-on-error: false
+        run: bandit -r src/ start.py update.py -c pyproject.toml
+
+      - name: Check pyupgrade compliance
+        continue-on-error: true
+        run: pyupgrade --py312-plus $(git ls-files '*.py' | grep -v '^tests/')

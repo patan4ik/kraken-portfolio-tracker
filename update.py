@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from datetime import datetime, date, timedelta, timezone
-from typing import Optional, Tuple, Dict, Any, Set
+from typing import Any
 
 # ensure src on path when running from repo root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
@@ -85,12 +85,12 @@ def parse_relative_or_date(s: str) -> date:
     for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
         try:
             return datetime.strptime(s, fmt).date()
-        except Exception:
+        except Exception:  # nosec B112 - try next date format
             continue
     raise ValueError(f"Unsupported date format: {s}")
 
 
-def get_db_date_range(db_path: str) -> Tuple[Optional[date], Optional[date]]:
+def get_db_date_range(db_path: str) -> tuple[date | None, date | None]:
     """Return (min_date, max_date) present in DB (based on date_iso column)."""
     if not os.path.exists(db_path):
         return None, None
@@ -237,8 +237,8 @@ def main(argv=None):
     delay_max = args.delay_max if args.delay_max is not None else DEFAULT_DELAY_MAX
 
     # Load currently known entries from DB (used to filter duplicates)
-    existing_entries: Dict[str, Any] = storage.load_entries_from_db() or {}
-    known_txids: Set[str] = set(existing_entries.keys())
+    existing_entries: dict[str, Any] = storage.load_entries_from_db() or {}
+    known_txids: set[str] = set(existing_entries.keys())
     logger.info("Existing entries loaded from DB: %d", len(existing_entries))
 
     total_fetched = 0
@@ -287,7 +287,7 @@ def main(argv=None):
         logger.info("Fetched %d entries (raw)", len(fetched))
 
         # Filter to the requested date window
-        filtered: Dict[str, Any] = {}
+        filtered: dict[str, Any] = {}
         for txid, entry in fetched.items():
             try:
                 ts = float(entry.get("time", 0))
@@ -295,7 +295,7 @@ def main(argv=None):
                 ts = 0.0
             try:
                 entry_date = datetime.fromtimestamp(ts, tz=timezone.utc).date()
-            except Exception:
+            except Exception:  # nosec B112 - skip entry with unparseable timestamp
                 continue
             if start_fetch <= entry_date <= end_fetch:
                 filtered[txid] = entry

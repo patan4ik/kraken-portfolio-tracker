@@ -3,9 +3,9 @@ import argparse
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from collections import defaultdict
-from typing import Dict, Any, List, DefaultDict
+from typing import Any, DefaultDict
 
 import pandas as pd
 import storage
@@ -20,24 +20,35 @@ if not logger.handlers:
 EUR_ASSETS = {"ZEUR", "EUR"}
 
 
-def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
+def build_sell_report(entries: dict[str, Any], days: int = 7) -> pd.DataFrame:
     """Aggregate sells (crypto → EUR)."""
     if not entries:
         return pd.DataFrame()
 
     cutoff = time.time() - days * 86400
-    filtered = {
-        txid: e for txid, e in entries.items() if float(e.get("time", 0)) >= cutoff
-    }
+    filtered = {}
+    for txid, e in entries.items():
+        try:
+            ts = float(e.get("time", 0))
+        except (TypeError, ValueError):
+            logger.debug(
+                "Skipping ledger entry %s: unparsable time value %r",
+                txid,
+                e.get("time"),
+            )
+            continue
+        if ts >= cutoff:
+            filtered[txid] = e
+
     if not filtered:
         return pd.DataFrame()
 
-    groups: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    groups: DefaultDict[str, list[dict[str, Any]]] = defaultdict(list)
     for txid, e in filtered.items():
-        ref = e.get("refid") or txid
+        ref = str(e.get("refid") or txid)
         groups[ref].append(e)
 
-    daily: Dict[datetime.date, Dict[str, Any]] = {}
+    daily: dict[date, dict[str, Any]] = {}
 
     for ref, items in groups.items():
         sells = [
@@ -71,7 +82,7 @@ def build_sell_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         daily_row["Total Fee"] += total_fee
         daily_row["Total EUR"] += total_eur
         for s in sells:
-            asset = s.get("asset")
+            asset = str(s.get("asset"))
             amt = abs(float(s.get("amount", 0)))
             daily_row[asset] = daily_row.get(asset, 0.0) + amt
 

@@ -18,7 +18,6 @@ import glob
 import logging
 import os
 import re
-from typing import Optional
 
 import pandas as pd
 
@@ -66,7 +65,7 @@ def _normalize_kraken_asset(raw: str) -> str:
     return KRAKEN_LEGACY_ALIASES.get(base, base)
 
 
-def load_latest_balance_snapshot() -> Optional[pd.DataFrame]:
+def load_latest_balance_snapshot() -> pd.DataFrame | None:
     """
     Load the most recent balances_history/balance_YYYY-MM-DD.csv written by
     balances.py, aggregate wallet-suffixed rows (XETH/ETH.F/ETH.S -> ETH),

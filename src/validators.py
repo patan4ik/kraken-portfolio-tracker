@@ -7,7 +7,6 @@ import sqlite3
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 import logging
-from typing import Tuple
 from keys import load_keys, KeysError
 
 
@@ -30,7 +29,7 @@ class APIKeyError(Exception):
     """API keys missing or invalid."""
 
 
-def check_db_exists(db_path: str) -> Tuple[bool, str]:
+def check_db_exists(db_path: str) -> tuple[bool, str]:
     """
     Check DB file presence.
     Returns (True, message) on success, raises DatabaseMissingError if file absent.
@@ -40,7 +39,7 @@ def check_db_exists(db_path: str) -> Tuple[bool, str]:
     return True, "Database file found"
 
 
-def check_db_schema(db_path: str) -> Tuple[bool, str]:
+def check_db_schema(db_path: str) -> tuple[bool, str]:
     """
     Validate that DB has 'ledger' table.
     Returns (True, message) on success, raises SchemaInvalidError otherwise.
@@ -61,11 +60,11 @@ def check_db_schema(db_path: str) -> Tuple[bool, str]:
     finally:
         try:
             conn.close()
-        except Exception:
+        except Exception:  # nosec B110 - connection may already be closed
             pass
 
 
-def check_api_key(path: str) -> Tuple[bool, str]:
+def check_api_key(path: str) -> tuple[bool, str]:
     """
     Validate API key file at `path`.
     - If file missing -> raise APIKeyError
@@ -76,7 +75,6 @@ def check_api_key(path: str) -> Tuple[bool, str]:
     if not os.path.exists(path):
         raise APIKeyError(f"API key file not found: {path}")
 
-    # Try quick plaintext check: two non-empty lines
     try:
         with open(path, "rb") as fh:
             raw = fh.read()
@@ -87,19 +85,13 @@ def check_api_key(path: str) -> Tuple[bool, str]:
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         if len(lines) >= 2:
             return True, "API key file looks like plaintext (legacy) and exists"
-
     except Exception as e:
         logger.debug("Could not read key file %s: %s", path, e)
 
-    # Fallback: try to load keys using keys.load_keys() (no path argument).
-    # This covers encrypted KEYFILE scenario where master key is used by load_keys().
     try:
-        keys = load_keys()
-        if isinstance(keys, (tuple, list)) and len(keys) >= 2:
+        api_key, api_secret = load_keys()
+        if api_key and api_secret:
             return True, "API keys loaded via key manager"
-        if isinstance(keys, dict):
-            if keys.get("api_key") and keys.get("api_secret"):
-                return True, "API keys loaded via key manager"
         raise APIKeyError("Invalid keys format returned by keys.load_keys()")
     except KeysError as ke:
         raise APIKeyError(f"API keys error: {ke}") from ke
@@ -109,23 +101,19 @@ def check_api_key(path: str) -> Tuple[bool, str]:
         raise APIKeyError(f"Unexpected error loading API keys: {e}") from e
 
 
-def check_api_keys() -> Tuple[str, str]:
+def check_api_keys() -> tuple[str, str]:
     """
     Load default API keys (no explicit path).
-    Returns tuple (api_key, api_secret) on success or raises APIKeyError.
     """
     try:
-        keys = load_keys()
-        if isinstance(keys, (tuple, list)) and len(keys) >= 2:
-            return keys[0], keys[1]
-        elif isinstance(keys, dict):
-            k = keys.get("api_key") or keys.get("key")
-            s = keys.get("api_secret") or keys.get("secret")
-            if k and s:
-                return k, s
+        api_key, api_secret = load_keys()
+        if api_key and api_secret:
+            return api_key, api_secret
         raise APIKeyError("Invalid keys format")
     except KeysError as e:
         raise APIKeyError(f"API keys error: {e}") from e
+    except APIKeyError:
+        raise
     except Exception as e:
         raise APIKeyError(f"Unexpected error loading API keys: {e}") from e
 

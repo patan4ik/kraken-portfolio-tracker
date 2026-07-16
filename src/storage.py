@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import shutil
 import logging
-from typing import Dict, Any
+from typing import Any
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ def init_db():
     conn.close()
 
 
-def _atomic_write_json(path: str, data: Dict[str, Any]):
+def _atomic_write_json(path: str, data: dict[str, Any]):
     """Write JSON atomically into `path`."""
     _ensure_dir()
     dirn = os.path.dirname(path) or "."
@@ -89,11 +89,11 @@ def _atomic_write_json(path: str, data: Dict[str, Any]):
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except Exception:
+            except Exception:  # nosec B110 - best-effort temp file cleanup
                 pass
 
 
-def save_entries(entries: Dict[str, Any]):
+def save_entries(entries: dict[str, Any]):
     """
     Save ledger entries to raw-ledger.json and to SQLite.
     Used by start.py during initialization (full save).
@@ -105,7 +105,7 @@ def save_entries(entries: Dict[str, Any]):
     _ensure_dir()
     try:
         _backup_file(RAW_LEDGER_FILE)
-    except Exception:
+    except Exception:  # nosec B110 - backup is best-effort, missing source file is fine
         pass
     try:
         _atomic_write_json(RAW_LEDGER_FILE, entries)
@@ -154,12 +154,12 @@ def save_entries(entries: Dict[str, Any]):
     finally:
         try:
             conn.close()
-        except Exception:
+        except Exception:  # nosec B110 - connection may already be closed
             pass
 
 
 # ------------------ NEW: save_update_entries ------------------
-def save_update_entries(entries: Dict[str, Any]) -> int:
+def save_update_entries(entries: dict[str, Any]) -> int:
     """
     Save incremental update entries to a separate JSON file (update-ledger.json)
     AND insert/replace those entries into the SQLite DB.
@@ -181,7 +181,7 @@ def save_update_entries(entries: Dict[str, Any]) -> int:
     # --- Step 1: Backup and save JSON file ---
     try:
         _backup_file(UPDATE_LEDGER_FILE)
-    except Exception:
+    except Exception:  # nosec B110 - ignore missing old file
         pass  # ignore missing old file
 
     try:
@@ -209,7 +209,9 @@ def save_update_entries(entries: Dict[str, Any]) -> int:
             if entry.get("time"):
                 try:
                     ts_val = float(entry["time"])
-                except Exception:
+                except (
+                    Exception
+                ):  # nosec B110 - fall back to no timestamp if conversion fails
                     pass
             date_iso = None
             if ts_val:
@@ -219,7 +221,9 @@ def save_update_entries(entries: Dict[str, Any]) -> int:
                         .date()
                         .isoformat()
                     )
-                except Exception:
+                except (
+                    Exception
+                ):  # nosec B110 - fall back to no timestamp if conversion fails
                     pass
 
             cur.execute(
@@ -261,7 +265,7 @@ def save_update_entries(entries: Dict[str, Any]) -> int:
     return inserted_new
 
 
-def load_entries_from_db() -> Dict[str, Any]:
+def load_entries_from_db() -> dict[str, Any]:
     """
     Load ledger entries from SQLite and return dict(txid -> entry dict).
     If `date_iso` column exists, add it as entry['date'].
@@ -282,7 +286,7 @@ def load_entries_from_db() -> Dict[str, Any]:
 
     conn.close()
 
-    entries: Dict[str, Any] = {}
+    entries: dict[str, Any] = {}
     for txid, data_json, date_iso in rows:
         try:
             obj = json.loads(data_json)
@@ -294,19 +298,22 @@ def load_entries_from_db() -> Dict[str, Any]:
     return entries
 
 
-def load_entries() -> Dict[str, Any]:
+def load_entries() -> dict[str, Any]:
     """Load ledger from raw-ledger.json (used by start.py)."""
     if not os.path.exists(RAW_LEDGER_FILE):
         return {}
     try:
         if os.path.getsize(RAW_LEDGER_FILE) == 0:
             return {}
-    except Exception:
+    except Exception:  # nosec B110 - corrupted/missing file treated as empty state
         pass
 
     try:
-        with open(RAW_LEDGER_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(RAW_LEDGER_FILE, encoding="utf-8") as f:
+            # before return json.load(f)
+            # after
+            data: dict[str, Any] = json.load(f)
+            return data
     except json.JSONDecodeError:
         logger.warning(
             "raw-ledger.json is present but invalid JSON; returning empty dict"

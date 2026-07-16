@@ -3,9 +3,9 @@ import argparse
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from collections import defaultdict
-from typing import Dict, Any, List, DefaultDict
+from typing import Any, DefaultDict
 
 import pandas as pd
 import storage
@@ -18,25 +18,35 @@ if not logger.handlers:
     )
 
 
-def build_asset_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
+def build_asset_report(entries: dict[str, Any], days: int = 7) -> pd.DataFrame:
     """Aggregate received assets by day (all buys)."""
     if not entries:
         return pd.DataFrame()
 
     cutoff = time.time() - days * 86400
-    filtered = {
-        txid: e for txid, e in entries.items() if float(e.get("time", 0)) >= cutoff
-    }
+    filtered = {}
+    for txid, e in entries.items():
+        try:
+            ts = float(e.get("time", 0))
+        except (TypeError, ValueError):
+            logger.debug(
+                "Skipping ledger entry %s: unparsable time value %r",
+                txid,
+                e.get("time"),
+            )
+            continue
+        if ts >= cutoff:
+            filtered[txid] = e
 
     if not filtered:
         return pd.DataFrame()
 
-    groups: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    groups: DefaultDict[str, list[dict[str, Any]]] = defaultdict(list)
     for txid, e in filtered.items():
-        ref = e.get("refid") or txid
+        ref = str(e.get("refid") or txid)
         groups[ref].append(e)
 
-    daily: Dict[datetime.date, Dict[str, Any]] = {}
+    daily: dict[date, dict[str, Any]] = {}
 
     for ref, items in groups.items():
         receives = [
@@ -58,7 +68,7 @@ def build_asset_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
             daily[date_obj] = {"Date": date_obj}
 
         for r in receives:
-            asset = r.get("asset")
+            asset = str(r.get("asset"))
             amt = float(r.get("amount", 0))
             daily[date_obj][asset] = daily[date_obj].get(asset, 0.0) + amt
 
@@ -70,6 +80,10 @@ def build_asset_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         df["Date"] = pd.to_datetime(df["Date"])
         df.sort_values("Date", inplace=True)
         df.reset_index(drop=True, inplace=True)
+
+    asset_cols = [c for c in df.columns if c != "Date"]
+    for a in asset_cols:
+        df[a] = df[a].round(8)
 
     return df
 

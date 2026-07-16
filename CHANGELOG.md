@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.1.0] - 2026-07-16
+### Added
+- New GitHub Actions workflow `.github/workflows/lint.yml` — runs mypy, Bandit, and pyupgrade compliance checks on every push/PR to `main` (non-blocking via `continue-on-error`, informational for now).
+- `.pre-commit-config.yaml` — local pre-commit hooks for Black, Ruff (`--fix`), Bandit (`-c pyproject.toml`), pyupgrade (`--py313-plus`), and mypy (`--config-file=pyproject.toml`), scoped to `src/`, `start.py`, `update.py`.
+- `requirements-dev.txt` — separated dev-only tooling dependencies (bandit, mypy, pre-commit, ruff, black, pyupgrade, pandas-stubs, types-requests, types-tabulate) from runtime `requirements.txt`.
+
+### Fixed
+- `balances.py`: extensive code review fixes — corrected `load_keys()` result handling to accept both tuple/list and dict shapes with runtime validation instead of assuming a fixed type.
+- `balances.py`: fixed `tabulate()` invocation for the on-screen summary table — passing `headers=list(df.columns)` against a `list[dict]` payload raised `ValueError`; now uses `headers="keys"` as required by tabulate for list-of-dicts input.
+- `balances.py`: fixed `UnboundLocalError` in the portfolio snapshot CSV save logic — the `snapshots` DataFrame is now always assigned before use in both the "file exists" and "file does not exist" branches, and written exactly once via `_atomic_to_csv`.
+
+### Changed
+- Ran full Bandit and mypy validation across `src/`, `start.py`, `update.py` — both pass clean (`bandit... Passed`, `mypy... Passed`).
+- Test suite (187 tests) fully green with `pytest --cov=src --cov-fail-under=80`; total coverage raised to 83.76% (previously below the 80% gate).
+- Updated `requirements.txt` with pinned versions for `bandit==1.9.4`, `mypy==2.3.0`, `ruff==0.12.12`, `black==25.1.0`, and related type-stub packages.
+- `lint.yml`: `mypy` and `Bandit` steps changed from `continue-on-error: true` to `continue-on-error: false` — CI now hard-fails on type-check or security-scan violations. `pyupgrade` remains informational (`continue-on-error: true`).
+
 ## [1.0.0.1] - 2026-07-14
 ### Changed
 - Extended the GitHub Actions Python test matrix to include 3.13.0 alongside 3.11 and 3.12.

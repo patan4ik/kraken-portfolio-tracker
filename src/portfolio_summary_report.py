@@ -22,6 +22,7 @@ import re
 import pandas as pd
 import storage
 import portfolio_summary
+import sqlite3
 
 PORTFOLIO_SUMMARY_FILE = os.path.join(
     storage.BALANCES_DIR, "portfolio_summary_report.csv"
@@ -66,7 +67,7 @@ def _is_na(v) -> bool:
     try:
         if pd.isna(v):
             return True
-    except Exception:
+    except Exception:  # nosec B110 - value not numeric, treated as non-matching below
         pass
     if isinstance(v, str) and v.strip().upper() in {"", "N/A"}:
         return True
@@ -322,7 +323,12 @@ def build_summary_report(recompute: bool = True) -> pd.DataFrame:
     if recompute:
         df = portfolio_summary.update_summary()
     else:
-        df = portfolio_summary.load_summary()
+        conn = sqlite3.connect(storage.LEDGER_DB_FILE)
+        try:
+            portfolio_summary.init_summary_table(conn)  # ensure table exists
+            df = pd.read_sql("SELECT * FROM summary", conn)
+        finally:
+            conn.close()
 
     if df is None or df.empty:
         logger.warning("Portfolio summary is empty")

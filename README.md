@@ -55,9 +55,30 @@ Whether you're a casual investor or a data-driven trader, this tool gives you in
   ```
 
 ### CLI & Automation
-- Central launcher: `python start.py`
-- Command-line flags for custom behavior (`--days`, `--page-size`, etc.)
+- Central launcher: `python start.py` for project initiation
+- Central launcher: `python update.py` for data updates
+- Command-line flags for custom behavior (`--days`, `--fromdate`, etc.)
 - Compatible with cron (Linux) or Task Scheduler (Windows)
+
+## Code Quality & CI
+
+This project enforces code quality via:
+- **Black** — code formatting
+- **Ruff** — linting (`ruff check src/ --fix`)
+- **mypy** — static type checking (`--config-file=pyproject.toml`)
+- **Bandit** — security static analysis (`-c pyproject.toml`)
+- **pyupgrade** — Python 3.13+ syntax modernization
+
+Run all checks locally before committing:
+
+```bash
+pip install -r requirements-dev.txt
+pre-commit install
+pre-commit run --all-files
+pytest --cov=src --cov-fail-under=80
+```
+
+GitHub Actions (`.github/workflows/lint.yml`) runs mypy, Bandit, and pyupgrade checks on every push/PR to `main`.
 
 ### Developer Tools
 - Modular codebase inside `/src`

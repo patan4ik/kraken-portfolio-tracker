@@ -4,7 +4,6 @@ import json
 import logging
 from cryptography.fernet import Fernet, InvalidToken
 from appdirs import user_data_dir
-from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,9 @@ def _get_master_key(create_if_missing: bool = False) -> bytes:
     with open(MASTER_FILE, "wb") as f:
         try:
             os.fchmod(f.fileno(), 0o600)
-        except Exception:
+        except (
+            Exception
+        ):  # nosec B110 - chmod not supported on all platforms, non-critical
             pass
         f.write(mk)
     return mk
@@ -65,14 +66,16 @@ def save_keys(api_key: str, api_secret: str):
     with open(KEYFILE, "wb") as fh:
         try:
             os.fchmod(fh.fileno(), 0o600)
-        except Exception:
+        except (
+            Exception
+        ):  # nosec B110 - chmod not supported on all platforms, non-critical
             pass
         fh.write(token)
 
     logger.info("✅ API keys saved successfully to %s", KEYFILE)
 
 
-def load_keys() -> Tuple[str, str]:
+def load_keys() -> tuple[str, str]:
     """Load API keys from encrypted file, plaintext fallback, or env vars."""
     # 1. Encrypted file
     if os.path.exists(KEYFILE):

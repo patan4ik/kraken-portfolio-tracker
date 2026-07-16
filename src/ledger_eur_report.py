@@ -3,9 +3,9 @@ import os
 import logging
 import time
 import argparse
-from typing import Dict, Any, List, DefaultDict
+from typing import Any, DefaultDict
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import pandas as pd
 import storage
@@ -25,7 +25,7 @@ EUR_ASSETS = {"ZEUR", "EUR"}
 # ... other imports and constants remain
 
 
-def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
+def build_eur_report(entries: dict[str, Any], days: int = 7) -> pd.DataFrame:
     """Build a DataFrame where Date is a real datetime (not string)."""
     if not entries:
         return pd.DataFrame()
@@ -35,9 +35,11 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
     for txid, e in entries.items():
         try:
             ts = float(e.get("time", 0))
-        except Exception:
+        except (
+            Exception
+        ):  # nosec B112 - skip malformed ledger entry, continue processing
             continue
-        typ = (e.get("type") or "").lower()
+        typ = str(e.get("type") or "").lower()
         if ts >= cutoff and typ in {"receive", "spend", "trade"}:
             out = dict(e)
             out["_txid"] = txid
@@ -49,13 +51,13 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
     if not filtered:
         return pd.DataFrame()
 
-    groups: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    groups: DefaultDict[str, list[dict[str, Any]]] = defaultdict(list)
     for txid, e in filtered.items():
-        ref = e.get("refid") or txid
+        ref = str(e.get("refid") or txid)
         groups[ref].append(e)
 
     # accumulate per date (use datetime.date objects as keys)
-    daily: Dict[datetime.date, Dict[str, Any]] = {}
+    daily: dict[date, dict[str, Any]] = {}
 
     for ref, items in groups.items():
         spends = [
@@ -86,15 +88,15 @@ def build_eur_report(entries: Dict[str, Any], days: int = 7) -> pd.DataFrame:
         recv_amounts = [abs(float(r.get("amount", 0))) for r in receives]
         total_recv_amount = sum(recv_amounts) if recv_amounts else 0.0
 
-        alloc: Dict[str, float] = {}
+        alloc: dict[str, float] = {}
         if total_recv_amount > 0 and len(receives) > 1:
             for r, amt in zip(receives, recv_amounts):
-                asset = r.get("asset")
+                asset = str(r.get("asset"))
                 alloc[asset] = alloc.get(asset, 0.0) + total_spent * (
                     amt / total_recv_amount
                 )
         else:
-            first_asset = receives[0].get("asset")
+            first_asset = str(receives[0].get("asset"))
             alloc[first_asset] = alloc.get(first_asset, 0.0) + total_spent
 
         if date_obj not in daily:

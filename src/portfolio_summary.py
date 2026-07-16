@@ -27,7 +27,7 @@ import re
 import sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, Any, List, DefaultDict, Optional
+from typing import Any, DefaultDict
 
 import pandas as pd
 import storage
@@ -72,7 +72,7 @@ ASSET_ALIASES = {
 WALLET_SUFFIX_RE = re.compile(r"\d*\.(F|B|S|M|P)$")
 
 
-def normalize_asset(raw: Optional[str]) -> str:
+def normalize_asset(raw: str | None) -> str:
     """
     Mirror of Apps Script normalizeAsset(): trim + uppercase + map legacy codes
     + strip Kraken wallet-location suffix (optionally preceded by a lock-term
@@ -92,8 +92,8 @@ def normalize_asset(raw: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _group_by_refid(entries: Dict[str, Any]) -> DefaultDict[str, List[Dict[str, Any]]]:
-    groups: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+def _group_by_refid(entries: dict[str, Any]) -> DefaultDict[str, list[dict[str, Any]]]:
+    groups: DefaultDict[str, list[dict[str, Any]]] = defaultdict(list)
     for txid, e in entries.items():
         if str(e.get("type", "")).lower() in NON_TRADE_TYPES:
             continue  # exclude wallet transfers (spot<->staking) entirely
@@ -102,17 +102,19 @@ def _group_by_refid(entries: Dict[str, Any]) -> DefaultDict[str, List[Dict[str, 
     return groups
 
 
-def _entry_date(e: Dict[str, Any]):
+def _entry_date(e: dict[str, Any]):
     if e.get("date"):
         try:
             return datetime.fromisoformat(e["date"])
-        except Exception:
+        except (
+            Exception
+        ):  # nosec B110 - fall back to timestamp-based date if ISO parse fails
             pass
     ts = float(e.get("time", 0))
     return datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
 
 
-def extract_buys(entries: Dict[str, Any]) -> List[Dict[str, Any]]:
+def extract_buys(entries: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Pair EUR-out legs with asset-in legs per refid -> individual buy transactions.
     Also captures fee-free asset inflows (staking rewards, airdrops - NOT
@@ -174,7 +176,7 @@ def extract_buys(entries: Dict[str, Any]) -> List[Dict[str, Any]]:
     return buys
 
 
-def extract_sells(entries: Dict[str, Any]) -> List[Dict[str, Any]]:
+def extract_sells(entries: dict[str, Any]) -> list[dict[str, Any]]:
     """Pair asset-out legs with EUR-in legs per refid -> individual sell transactions."""
     sells = []
     for ref, items in _group_by_refid(entries).items():
@@ -239,7 +241,7 @@ def _new_asset_state():
     }
 
 
-def _apply_buy(state: Dict[str, Any], buy: Dict[str, Any]):
+def _apply_buy(state: dict[str, Any], buy: dict[str, Any]):
     s = state.setdefault(buy["asset"], _new_asset_state())
     s["remaining_amount"] += buy["amount"]
     s["remaining_cost"] += buy["paid"] + buy["fee"]
@@ -258,7 +260,7 @@ def _apply_buy(state: Dict[str, Any], buy: Dict[str, Any]):
         s["update_date"] = buy["date"]
 
 
-def _apply_sell(state: Dict[str, Any], sell: Dict[str, Any]):
+def _apply_sell(state: dict[str, Any], sell: dict[str, Any]):
     s = state.get(sell["asset"])
     if not s:
         logger.warning("Sell skipped, asset not in FIFO state | %s", sell)
@@ -289,7 +291,7 @@ def _apply_sell(state: Dict[str, Any], sell: Dict[str, Any]):
         )
 
 
-def _apply_buy_to_price_state(price_state: Dict[str, Any], buy: Dict[str, Any]):
+def _apply_buy_to_price_state(price_state: dict[str, Any], buy: dict[str, Any]):
     """EMA7 + regression accumulators, direct port of applyBuyToPriceState."""
     if buy["price"] <= 0:
         return
@@ -318,7 +320,7 @@ def _apply_buy_to_price_state(price_state: Dict[str, Any], buy: Dict[str, Any]):
         ps["last_date"] = buy["date"]
 
 
-def run_fifo(entries: Dict[str, Any]) -> pd.DataFrame:
+def run_fifo(entries: dict[str, Any]) -> pd.DataFrame:
     """
     Full-history FIFO recompute — NEVER pass a days-filtered entries dict here.
     Returns a DataFrame equivalent to the Google Sheets Summary tab (cols A-H).
@@ -330,8 +332,8 @@ def run_fifo(entries: Dict[str, Any]) -> pd.DataFrame:
     buys = extract_buys(entries)
     sells = extract_sells(entries)
 
-    fifo_state: Dict[str, Any] = {}
-    price_state: Dict[str, Any] = {}
+    fifo_state: dict[str, Any] = {}
+    price_state: dict[str, Any] = {}
 
     for b in buys:
         _apply_buy(fifo_state, b)
@@ -373,7 +375,9 @@ def forecast_prices(summary_df: pd.DataFrame) -> pd.DataFrame:
         return summary_df
 
     price_state = summary_df.attrs.get("price_state", {})
-    ema7_col, f7_col, f30_col = [], [], []
+    ema7_col: list[float | None] = []
+    f7_col: list[float | None] = []
+    f30_col: list[float | None] = []
 
     for _, row in summary_df.iterrows():
         asset = row["asset"]
@@ -433,7 +437,7 @@ def init_summary_table(conn: sqlite3.Connection):
     conn.commit()
 
 
-def save_summary(df: pd.DataFrame, db_path: str = None):
+def save_summary(df: pd.DataFrame, db_path: str | None = None):
     """Overwrites the summary table content — fully derived/disposable output."""
     db_path = db_path or storage.LEDGER_DB_FILE
     conn = sqlite3.connect(db_path)

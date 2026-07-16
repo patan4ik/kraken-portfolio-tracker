@@ -65,11 +65,10 @@ def main(argv=None):
         )
         # exit non-zero — caller/tests expect termination
         sys.exit(1)
-        return
+
     except Exception as e:
         logger.error(f"Unexpected error loading keys: {e}")
         sys.exit(1)
-        return
 
     # --- 1. Portfolio (balances) ---
     # Prevent balances.main from updating the ledger itself (it defaults to using

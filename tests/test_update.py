@@ -2,7 +2,7 @@
 not the full API-dependent pipeline, which needs live Kraken creds by design)."""
 
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 
 import pytest
 import update  # noqa: E402  (resolved via tests/conftest.py adding ROOT to sys.path)
@@ -149,13 +149,13 @@ def test_main_keys_error_after_validation_returns_1(tmp_path, monkeypatch):
 # parse_relative_or_date
 # ---------------------------------------------------------------------------
 def test_parse_relative_days():
-    today = date.today()
+    today = datetime.now(timezone.utc).date()  # was: date.today()
     result = update.parse_relative_or_date("5d")
     assert result == today - timedelta(days=5)
 
 
 def test_parse_relative_months():
-    today = date.today()
+    today = datetime.now(timezone.utc).date()  # was: date.today()
     result = update.parse_relative_or_date("2m")
     assert result == today - timedelta(days=60)
 

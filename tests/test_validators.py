@@ -100,24 +100,6 @@ def test_check_api_key_fallback_to_load_keys_tuple(tmp_path, monkeypatch):
     assert ok is True
 
 
-def test_check_api_key_fallback_to_load_keys_dict(tmp_path, monkeypatch):
-    keyfile = tmp_path / "kraken.key"
-    keyfile.write_text("onlyoneline")
-    monkeypatch.setattr(
-        validators, "load_keys", lambda: {"api_key": "k", "api_secret": "s"}
-    )
-    ok, msg = validators.check_api_key(str(keyfile))
-    assert ok is True
-
-
-def test_check_api_key_fallback_invalid_format_raises(tmp_path, monkeypatch):
-    keyfile = tmp_path / "kraken.key"
-    keyfile.write_text("onlyoneline")
-    monkeypatch.setattr(validators, "load_keys", lambda: {"nope": "bad"})
-    with pytest.raises(validators.APIKeyError):
-        validators.check_api_key(str(keyfile))
-
-
 def test_check_api_key_fallback_keyerror_raises(tmp_path, monkeypatch):
     keyfile = tmp_path / "kraken.key"
     keyfile.write_text("onlyoneline")
@@ -139,23 +121,17 @@ def test_check_api_keys_tuple(monkeypatch):
     assert (k, s) == ("k", "s")
 
 
-def test_check_api_keys_dict(monkeypatch):
-    monkeypatch.setattr(validators, "load_keys", lambda: {"key": "k", "secret": "s"})
-    k, s = validators.check_api_keys()
-    assert (k, s) == ("k", "s")
-
-
-def test_check_api_keys_invalid_format_raises(monkeypatch):
-    monkeypatch.setattr(validators, "load_keys", lambda: {"bad": "x"})
+def test_check_api_keys_empty_raises(monkeypatch):
+    monkeypatch.setattr(validators, "load_keys", lambda: ("", ""))
     with pytest.raises(validators.APIKeyError):
         validators.check_api_keys()
 
 
 def test_check_api_keys_keyserror_raises(monkeypatch):
-    def raise_keyserror():
-        raise validators.KeysError("nope")
+    def _raise():
+        raise validators.KeysError("boom")
 
-    monkeypatch.setattr(validators, "load_keys", raise_keyserror)
+    monkeypatch.setattr(validators, "load_keys", _raise)
     with pytest.raises(validators.APIKeyError):
         validators.check_api_keys()
 

@@ -4,7 +4,7 @@ import random
 import logging
 import argparse
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Set
+from typing import Any
 
 from api import KrakenAPI
 from config import (
@@ -38,7 +38,7 @@ def _fetch_page_with_retry(
     since_limit: int,
     page_size: int,
     max_retries: int = MAX_RETRIES_PER_PAGE,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     Fetch a single ledger page, retrying on ANY exception (timeout, rate-limit,
     connection error, transient Kraken 5xx, etc.) with exponential backoff +
@@ -48,7 +48,7 @@ def _fetch_page_with_retry(
     attempt = 0
     while attempt < max_retries:
         try:
-            return api.get_ledgers(ofs=ofs, since=since_limit, page_size=page_size)
+            return api.get_ledgers(ofs=ofs, since=since_limit)
         except TypeError:
             # api signature does not accept these kwargs -> fall back once, no retry needed
             try:
@@ -75,7 +75,9 @@ def _fetch_page_with_retry(
             break
 
         backoff = min(RETRY_BACKOFF_BASE * (2 ** (attempt - 1)), RETRY_BACKOFF_MAX)
-        jitter = random.uniform(RETRY_JITTER_MIN, RETRY_JITTER_MAX)
+        jitter = random.uniform(
+            RETRY_JITTER_MIN, RETRY_JITTER_MAX
+        )  # nosec B311 - jitter for retry backoff, not security-sensitive
         sleep_for = backoff + jitter
         logger.info(
             "Retrying ofs=%d in %.1fs (attempt %d/%d)...",
@@ -101,10 +103,10 @@ def fetch_ledger(
     delay_min: float = DEFAULT_DELAY_MIN,
     delay_max: float = DEFAULT_DELAY_MAX,
     *,
-    since_ts: Optional[int] = None,
-    stop_on_txids: Optional[Set[str]] = None,
+    since_ts: int | None = None,
+    stop_on_txids: set[str] | None = None,
     max_consecutive_page_failures: int = 3,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fetch ledger entries from Kraken.
 
@@ -124,7 +126,7 @@ def fetch_ledger(
 
     Returns dict(txid -> entry).
     """
-    entries: Dict[str, Any] = {}
+    entries: dict[str, Any] = {}
     now_ts = int(datetime.now(timezone.utc).timestamp())
     since_limit = since_ts if since_ts is not None else now_ts - days * 86400
 
@@ -155,7 +157,10 @@ def fetch_ledger(
                 break
             # skip this offset attempt cycle but keep going (do not advance ofs blindly —
             # retry same ofs after a cooldown, since Kraken likely still owes us this page)
-            time.sleep(random.uniform(delay_min, delay_max) + 5.0)
+            jitter = random.uniform(
+                delay_min, delay_max
+            )  # nosec B311 - jitter for retry backoff, not security-sensitive
+            time.sleep(jitter + 5.0)
             continue
 
         # reset failure streak on any successful page
@@ -221,7 +226,12 @@ def fetch_ledger(
             break
 
         ofs += page_size
-        time.sleep(random.uniform(delay_min, delay_max))
+
+        time.sleep(
+            random.uniform(
+                delay_min, delay_max
+            )  # nosec B311 - jitter for retry backoff, not security-sensitive
+        )
 
     logger.info(
         "Finished. Total entries stored: %d (early-stop: %s, matched: %d)",
@@ -233,7 +243,7 @@ def fetch_ledger(
 
 
 def update_raw_ledger(
-    api: Optional[KrakenAPI] = None,
+    api: KrakenAPI | None = None,
     days: int = DEFAULT_DAYS,
     page_size: int = DEFAULT_PAGE_SIZE,
     delay_min: float = DEFAULT_DELAY_MIN,
@@ -248,7 +258,7 @@ def update_raw_ledger(
     save_entries(entries)
 
 
-def load_raw_ledger() -> Dict[str, Any]:
+def load_raw_ledger() -> dict[str, Any]:
     """Load stored raw ledger (JSON)."""
     return load_entries()
 

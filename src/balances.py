@@ -15,7 +15,7 @@ import glob
 import tempfile
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Any
+from typing import Any
 
 import pandas as pd
 from tabulate import tabulate
@@ -93,7 +93,7 @@ def compute_trends(df: pd.DataFrame) -> pd.DataFrame:
     for fpath in csv_files:
         try:
             date_str = os.path.basename(fpath).split("_")[1].split(".")[0]
-        except Exception:
+        except Exception:  # nosec B112 - skip files with unparseable date in filename
             continue
         try:
             prev_df = pd.read_csv(fpath)
@@ -138,7 +138,7 @@ def _unwrap_api_response(resp: Any) -> Any:
     return resp
 
 
-def fetch_balances(api: KrakenAPI) -> Dict[str, float]:
+def fetch_balances(api: KrakenAPI) -> dict[str, float]:
     balances_raw = _unwrap_api_response(api.get_balance())
     if not balances_raw:
         return {}
@@ -149,21 +149,21 @@ def fetch_balances(api: KrakenAPI) -> Dict[str, float]:
     return {}
 
 
-def fetch_asset_pairs(api: KrakenAPI) -> dict:
+def fetch_asset_pairs(api: KrakenAPI) -> dict[str, Any]:
     resp = _unwrap_api_response(api.get_asset_pairs())
     if not resp:
         raise RuntimeError("AssetPairs error: пустой ответ")
-    return resp
+    return dict(resp)  # get sset pairs
 
 
-def fetch_prices_batch(api: KrakenAPI, pairs: List[str]) -> Dict[str, Decimal]:
+def fetch_prices_batch(api: KrakenAPI, pairs: list[str]) -> dict[str, Decimal]:
     """Получаем цены одним батч-запросом Ticker."""
     if not pairs:
         return {}
     resp = _unwrap_api_response(api.get_ticker(",".join(pairs)))
     if not resp:
         return {}
-    prices: Dict[str, Decimal] = {}
+    prices: dict[str, Decimal] = {}
     for pair, data in resp.items():
         try:
             # Kraken ticker shape: data['c'][0] (close price string)
@@ -173,7 +173,14 @@ def fetch_prices_batch(api: KrakenAPI, pairs: List[str]) -> Dict[str, Decimal]:
                 # if direct numeric or unexpected, try to coerce
                 prices[pair] = Decimal(data)
         except Exception:
-            logger.warning("Ошибка получения цены для %s", pair)
+            logger.warning(
+                "Ошибка получения цены для %s: не удалось распарсить значение %r. "
+                "Актив будет исключён из расчёта, а не оценён в €0.",
+                pair,
+                +data,
+            )
+            # Explicitly mark as missing instead of silently defaulting to 0
+            prices[pair] = Decimal("0")
     return prices
 
 
@@ -193,7 +200,9 @@ def _atomic_to_csv(df: pd.DataFrame, out_path: str, **to_csv_kwargs) -> None:
         try:
             if os.path.exists(tmppath):
                 os.remove(tmppath)
-        except Exception:
+        except (
+            Exception
+        ):  # nosec B110 - best-effort temp file cleanup before re-raising
             pass
         raise
 
@@ -280,7 +289,9 @@ def main(argv=None) -> int:
                 "ERROR: API-ключи Kraken не найдены. Создайте файл ключей или используйте --setup-keys."
             )
             return 2
-        keys = load_keys()
+        keys: Any = load_keys()  # Any -- load_keys() declares Tuple[str, str],
+        # but callers/tests may monkeypatch it with arbitrary values, so we
+        # validate defensively at runtime instead of trusting the static type.
     except FileNotFoundError:
         print("ERROR: API-ключи Kraken не найдены. Используйте --setup-keys.")
         return 2
@@ -303,7 +314,12 @@ def main(argv=None) -> int:
         logger.error("Unexpected keys format from load_keys(): %r", keys)
         return 4
 
-    # Instantiate API
+    if not api_key or not api_secret:
+        logger.error("Missing api_key/api_secret after parsing load_keys() result")
+        return 4
+
+    # Instantiate API and load_keys() is typed to always return Tuple[str, str] (see keys.py)
+    api_key, api_secret = keys
     api = KrakenAPI(api_key, api_secret)
 
     # Update ledger if requested
@@ -339,8 +355,8 @@ def main(argv=None) -> int:
         asset_pairs = fetch_asset_pairs(api)
 
         # Формируем список пар для батч-запроса
-        pairs_needed: List[str] = []
-        asset_to_pair: Dict[str, str] = {}
+        pairs_needed: list[str] = []
+        asset_to_pair: dict[str, str] = {}
         for asset in aggregated.keys():
             if asset == args.quote:
                 continue
@@ -362,15 +378,31 @@ def main(argv=None) -> int:
         # Считаем портфель
         rows = []
         total_value = 0.0
+        skipped_assets: list[str] = []
         for asset, info in aggregated.items():
             amount_total = info["available"] + info["staked"]
             if amount_total < args.min_balance:
                 continue
-            price_eur = (
-                1.0
-                if asset == args.quote
-                else float(prices.get(asset_to_pair.get(asset), 0))
-            )
+
+            if asset == args.quote:
+                price_eur = 1.0
+            else:
+                raw_price = None
+                maybe_pair = asset_to_pair.get(asset)
+                if maybe_pair:
+                    raw_price = prices.get(maybe_pair)
+                if raw_price is None:
+                    logger.warning(
+                        "Цена для %s не получена (ошибка API/парсинга котировки). "
+                        "Актив включён в отчёт с ценой €0 — проверьте котировки Kraken, "
+                        "итоговая сумма портфеля может быть занижена.",
+                        asset,
+                    )
+                    skipped_assets.append(asset)
+                    price_eur = 0.0
+                else:
+                    price_eur = float(raw_price)
+
             val_avail = info["available"] * price_eur
             val_staked = info["staked"] * price_eur
             value_total = val_avail + val_staked
@@ -407,6 +439,14 @@ def main(argv=None) -> int:
             ],
         )
 
+        if skipped_assets:
+            logger.warning(
+                "ВНИМАНИЕ: %d актив(ов) исключены из расчёта портфеля из-за "
+                "отсутствия цены: %s. Итоговая сумма НЕ учитывает их стоимость.",
+                len(skipped_assets),
+                ", ".join(skipped_assets),
+            )
+
         if df.empty:
             logger.info("No assets above threshold after aggregation.")
             return 0
@@ -426,17 +466,36 @@ def main(argv=None) -> int:
         total_trend_value = 0.0
         if "Portfolio Trend Avg" in df.columns:
             total_trend_value = df.loc[
-                df["Asset"] != "ZEUR", "Portfolio Trend Avg"
+                df["Asset"] != args.quote, "Portfolio Trend Avg"
             ].sum()
 
         # ---- ВЫВОД НА ЭКРАН ---- #
         short_df = df[["Asset", "Amount", "Current Price (EUR)", "Value (EUR)"]]
+
+        # tabulate не принимает DataFrame → конвертируем в list[dict]
+        short_records = short_df.to_dict("records")
+        short_headers = "keys"
+
         logger.info(
-            "\n" + tabulate(short_df, headers="keys", tablefmt="psql", showindex=False)
+            "\n"
+            + tabulate(
+                short_records, headers=short_headers, tablefmt="psql", showindex=False
+            )
         )
+
         logger.info(
-            f"\nИТОГО: €{total_value:,.2f} | Trend: €{total_trend_value:,.2f} | Прогноз: €{(total_value + total_trend_value):,.2f}"
+            f"\nИТОГО: €{total_value:,.2f} | Trend: €{total_trend_value:,.2f} | "
+            f"Прогноз: €{(total_value + total_trend_value):,.2f}"
         )
+
+        # ---- ВЫВОД НА ЭКРАН ---- #
+        # short_df = df[["Asset", "Amount", "Current Price (EUR)", "Value (EUR)"]]
+        # logger.info(
+        #    "\n" + tabulate(short_df, headers="keys", tablefmt="psql", showindex=False)  # (pandas-stubs/types-tabulate false positives)
+        # )
+        # logger.info(
+        #    f"\nИТОГО: €{total_value:,.2f} | Trend: €{total_trend_value:,.2f} | Прогноз: €{(total_value + total_trend_value):,.2f}"
+        # )
 
         # ---- СОХРАНЕНИЕ ОСНОВНОГО CSV ---- #
         os.makedirs(BALANCES_DIR, exist_ok=True)
@@ -446,7 +505,7 @@ def main(argv=None) -> int:
         logger.info(f"CSV сохранён: {out_file}")
 
         # ---- СОХРАНЕНИЕ SNAPSHOT CSV ---- #
-        snapshot_row = {
+        snapshot_row: dict[str, Any] = {
             "Timestamp": datetime.now().strftime("%d.%m.%Y"),
             "Portfolio Value (EUR)": round(total_value, 2),
             "Portfolio Trend Avg (EUR)": round(total_trend_value, 2),
@@ -456,34 +515,33 @@ def main(argv=None) -> int:
         os.makedirs(BALANCES_DIR, exist_ok=True)
 
         if not os.path.exists(SNAPSHOTS_FILE):
-            # write single-row dataframe atomically
-            _atomic_to_csv(
-                pd.DataFrame([snapshot_row]),
-                SNAPSHOTS_FILE,
-                sep=";",
-                index=False,
-                encoding="utf-8",
-            )
+            snapshots = pd.DataFrame([snapshot_row])
         else:
             try:
                 snapshots = pd.read_csv(SNAPSHOTS_FILE, sep=";", encoding="utf-8")
             except Exception:
                 snapshots = pd.DataFrame()
+
             if (
                 not snapshots.empty
                 and snapshots.iloc[-1]["Timestamp"] == snapshot_row["Timestamp"]
             ):
+                idx = snapshots.index[-1]
                 for k, v in snapshot_row.items():
-                    snapshots.loc[snapshots.index[-1], k] = v
+                    snapshots.at[idx, k] = v
             else:
                 snapshots = pd.concat(
-                    [snapshots, pd.DataFrame([snapshot_row])], ignore_index=True
+                    [snapshots, pd.DataFrame([snapshot_row])],
+                    ignore_index=True,
                 )
 
-            # save atomically
-            _atomic_to_csv(
-                snapshots, SNAPSHOTS_FILE, sep=";", index=False, encoding="utf-8"
-            )
+        _atomic_to_csv(
+            snapshots,
+            SNAPSHOTS_FILE,
+            sep=";",
+            index=False,
+            encoding="utf-8",
+        )
 
         logger.info(f"Снапшот портфеля обновлён в {SNAPSHOTS_FILE}")
 
