@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.2.0 - 2026-07-21
+
+### Added
+- `tools/project_context.py` — standalone developer tool, unrelated to the trading/reporting
+  functionality of this project. Recursively scans the repository and merges its
+  structure and file contents into a single Markdown or XML-like document, optimized
+  for pasting into LLM chat context (ChatGPT, Claude, Gemini). Respects `.gitignore`,
+  filters out virtual envs, caches, and binaries by default, and supports
+  `--tree-only`, `--changed-only` (git-diff-aware context updates), `--max-chars`
+  (auto-splitting), and `--clipboard` output.
+- `tools/test_context.md` — sample output of `project_context.py` run against this repo,
+  kept as a reference/example of the tool's output format. Not required for the
+  application to run and safe to regenerate or delete at any time.
+
+### Notes
+- Both files are development-workflow tooling only. They have no import
+  dependency on `src/`, `start.py`, or `update.py`, and are excluded from
+  coverage/lint gating changes — `ruff` and `black` still apply to them since
+  they are `.py` files, but they carry no runtime risk to the tracker itself.
+
 ## [1.0.1.0] - 2026-07-16
 ### Added
 - New GitHub Actions workflow `.github/workflows/lint.yml` — runs mypy, Bandit, and pyupgrade compliance checks on every push/PR to `main` (non-blocking via `continue-on-error`, informational for now).

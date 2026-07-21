@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Coverage](https://codecov.io/gh/patan4ik/kraken-portfolio-tracker/branch/main/graph/badge.svg)
-![Version](https://img.shields.io/badge/version-1.0.1.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.0.2.0-brightgreen)
 
 # Kraken Portfolio Tracker
 
@@ -267,13 +267,35 @@ pip install pyinstaller
 
 pyinstaller --onedir --paths src --upx-dir "<path-to-upx>" --exclude-module setuptools --exclude-module pytest --exclude-module pygments --exclude-module wheel --hidden-import storage --hidden-import ledger_loader --hidden-import ledger_eur_report --hidden-import ledger_asset_report --hidden-import ledger_sell_report --hidden-import balances --hidden-import keys --hidden-import config --hidden-import validators --hidden-import api start.py
 
-pyinstaller --onedir --paths src --upx-dir "<path-to-upx>" --exclude-module setuptools --exclude-module pytest --exclude-module pygments --exclude-module wheel \
-  --hidden-import storage --hidden-import ledger_loader --hidden-import portfolio_summary --hidden-import portfolio_summary_report --hidden-import balance_reconciliation --hidden-import balances --hidden-import api --hidden-import keys --hidden-import config --hidden-import validators update.py
+pyinstaller --onedir --paths src --upx-dir "<path-to-upx>" --exclude-module setuptools --exclude-module pytest --exclude-module pygments --exclude-module wheel --hidden-import storage --hidden-import ledger_loader --hidden-import portfolio_summary --hidden-import portfolio_summary_report --hidden-import balance_reconciliation --hidden-import balances --hidden-import api --hidden-import keys --hidden-import config --hidden-import validators update.py
 ```
 
 The output for each entrypoint is written to `dist/start/` and `dist/update/` respectively.
 For release packaging, both `--onedir` outputs are merged into a single distributable folder
 and zipped (see release assets on the [Releases page](https://github.com/patan4ik/kraken-portfolio-tracker/releases)).
+
+## Developer Tooling: LLM Context Generator
+
+This repository includes, located in `tools/project_context.py` — a standalone script unrelated to
+portfolio tracking or reporting. It exists purely to help contributors and the
+maintainer quickly share the full (or partial) project structure and source
+code with an LLM assistant when debugging, reviewing, or planning changes —
+without manually copy-pasting dozens of files into a chat.
+
+```bash
+# Full project dump for LLM context
+python tools/project_context.py --output context.md
+
+# Only the directory structure, no file contents
+python tools/project_context.py --tree-only
+
+# Only files changed since the last commit — fast context refresh mid-conversation
+python tools/project_context.py --changed-only --output diff_context.md
+```
+
+`tools/test_context.md` is a sample output of this tool and can be
+regenerated or deleted freely — it is not consumed by any part of the
+application, tests, or CI pipeline.
 
 ## Contributing
 
