@@ -1,6 +1,37 @@
 # Changelog
 
-## 1.0.2.0 - 2026-07-21
+## [1.0.3.0] - 2026-07-22
+### Added
+- --grep PATTERN flag for regex-based relevance filtering of file contents.
+
+- --signatures-only flag using Python's ast module to extract function
+and class signatures without full implementation bodies.
+
+- Runtime warning printed to stderr when full-dump mode risks LLM context
+overload (threshold: more than 40 files without a scoping flag).
+
+- --version flag.
+
+- Test suite (tests/test_project_context.py) covering exclusion rules,
+signature extraction, grep filtering, tree-only mode, and the new warning.
+
+### Changed
+- Internal Config dataclass extended with signatures_only and
+grep_pattern fields.
+
+- render_markdown and render_xml updated to support the new
+signatures-only output branch.
+
+### Rationale
+- Benchmarking discussed in https://habr.com/ru/articles/1042880/ found that
+"read all files" context strategies for LLM agents correlate with degraded
+output quality and token counts an order of magnitude higher than scoped
+alternatives (e.g. symbol maps). This release brings an equivalent scoping
+option (--signatures-only) and a relevance filter (--grep) to
+project_context.py, plus a safeguard warning for unscoped full dumps on
+larger projects.
+
+## [1.0.2.0] - 2026-07-21
 
 ### Added
 - `tools/project_context.py` — standalone developer tool, unrelated to the trading/reporting

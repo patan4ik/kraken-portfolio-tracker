@@ -276,26 +276,50 @@ and zipped (see release assets on the [Releases page](https://github.com/patan4i
 
 ## Developer Tooling: LLM Context Generator
 
-This repository includes, located in `tools/project_context.py` — a standalone script unrelated to
-portfolio tracking or reporting. It exists purely to help contributors and the
-maintainer quickly share the full (or partial) project structure and source
-code with an LLM assistant when debugging, reviewing, or planning changes —
-without manually copy-pasting dozens of files into a chat.
+This repository includes, located in `tools/project_context.py` — a standalone script unrelated to portfolio tracking or reporting. It exists purely to help contributors and the maintainer quickly share the full (or partial) project structure and source code with an LLM assistant when debugging, reviewing, or planning changes — without manually copy-pasting dozens of files into a chat.
+
+Inspired by benchmarking research on LLM context strategies (https://habr.com/ru/articles/1042880/), which showed that "read all files" context dumps correlate with degraded LLM output quality and excessive token usage. This release adds intermediate context-scoping options between --tree-only and a full dump.
+
+--grep PATTERN — include only files whose content matches a regex pattern.
+Useful for pulling in just the code relevant to a specific class, function, or feature name.
+
+--signatures-only — output function/class signatures via Python's ast module, without full implementation bodies. Gives the LLM an interface map at a fraction of the token cost of a full dump.
+
+Automatic runtime warning when full-dump mode includes more than 40 files without any scoping flag (--changed-only, --signatures-only, --grep).
+
+Usage examples:
 
 ```bash
-# Full project dump for LLM context
-python tools/project_context.py --output context.md
-
 # Only the directory structure, no file contents
 python tools/project_context.py --tree-only
 
 # Only files changed since the last commit — fast context refresh mid-conversation
 python tools/project_context.py --changed-only --output diff_context.md
+
+# Only files relevant to "PortfolioSummary"
+python tools/project_context.py --grep "PortfolioSummary" --output portfolio_context.md
+
+# Fast interface map without full code
+python tools/project_context.py --signatures-only --output signatures.md
+
+# Full project dump for LLM context
+python tools/project_context.py --output context.md
 ```
 
-`tools/test_context.md` is a sample output of this tool and can be
-regenerated or deleted freely — it is not consumed by any part of the
-application, tests, or CI pipeline.
+`tools/test_context.md` is a sample output of this tool and can be regenerated or deleted freely — it is not consumed by any part of the application, tests, or CI pipeline.
+
+## Real-world token savings (v1.0.3.0 benchmark)
+
+Measured on a live production codebase (Kraken portfolio tracker, ~subset of files matching the tool's default Python profile) using `tiktoken` (`cl100k_base` encoding):
+
+| Mode | Output size | Input tokens | Savings vs. full dump |
+|---|---|---|---|
+| Full dump (no flags) | 313,339 chars | 73,694 tokens | — |
+| `--signatures-only` | 20,200 chars | 4,717 tokens | **93.6% fewer tokens (15.6x smaller)** |
+| `--grep "ClassName"` | 40,507 chars | 8,984 tokens | **87.8% fewer tokens (8.2x smaller)** |
+
+Takeaway: for architectural awareness (interfaces, class/function structure), `--signatures-only` gives an LLM nearly the same map at ~6% of the token cost.
+For focused debugging on a specific class or feature, `--grep` narrows scope to relevant files while keeping full implementation detail.
 
 ## Contributing
 
