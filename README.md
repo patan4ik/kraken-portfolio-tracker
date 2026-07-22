@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Coverage](https://codecov.io/gh/patan4ik/kraken-portfolio-tracker/branch/main/graph/badge.svg)
-![Version](https://img.shields.io/badge/version-1.0.2.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.0.4.0-brightgreen)
 
 # Kraken Portfolio Tracker
 
@@ -278,7 +278,7 @@ and zipped (see release assets on the [Releases page](https://github.com/patan4i
 
 This repository includes, located in `tools/project_context.py` — a standalone script unrelated to portfolio tracking or reporting. It exists purely to help contributors and the maintainer quickly share the full (or partial) project structure and source code with an LLM assistant when debugging, reviewing, or planning changes — without manually copy-pasting dozens of files into a chat.
 
-Inspired by benchmarking research on LLM context strategies (https://habr.com/ru/articles/1042880/), which showed that "read all files" context dumps correlate with degraded LLM output quality and excessive token usage. This release adds intermediate context-scoping options between --tree-only and a full dump.
+Inspired by benchmarking research on LLM context strategies, which showed that "read all files" context dumps correlate with degraded LLM output quality and excessive token usage. This release adds intermediate context-scoping options between --tree-only and a full dump.
 
 --grep PATTERN — include only files whose content matches a regex pattern.
 Useful for pulling in just the code relevant to a specific class, function, or feature name.

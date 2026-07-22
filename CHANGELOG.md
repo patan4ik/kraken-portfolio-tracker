@@ -1,55 +1,36 @@
 # Changelog
 
+## [1.0.4.0] - 2026-07-23
+
+### Added
+- `--graph` flag: OKF-flavored output mode. Splits signature extraction into one markdown file per module, with YAML frontmatter (`depends_on`, `used_by`) and cross-file markdown links reflecting the project's actual import graph. Writes to a directory (default: `project_graph/`) plus an `index.md` linking all modules.
+
+### Benchmarked
+- `--graph` measured ~2.8x more tokens than flat `--signatures-only` on a small test project, due to per-file frontmatter overhead. This is a navigability/precision tradeoff, not a token-savings mode — recommended for scoped, iterative exploration of specific modules and their direct dependencies, not as a replacement for `--signatures-only` when the goal is minimizing total context size.
+
 ## [1.0.3.0] - 2026-07-22
 ### Added
 - --grep PATTERN flag for regex-based relevance filtering of file contents.
-
-- --signatures-only flag using Python's ast module to extract function
-and class signatures without full implementation bodies.
-
-- Runtime warning printed to stderr when full-dump mode risks LLM context
-overload (threshold: more than 40 files without a scoping flag).
-
+- --signatures-only flag using Python's ast module to extract function and class signatures without full implementation bodies.
+- Runtime warning printed to stderr when full-dump mode risks LLM context overload (threshold: more than 40 files without a scoping flag).
 - --version flag.
-
-- Test suite (tests/test_project_context.py) covering exclusion rules,
-signature extraction, grep filtering, tree-only mode, and the new warning.
+- Test suite (tests/test_project_context.py) covering exclusion rules, signature extraction, grep filtering, tree-only mode, and the new warning.
 
 ### Changed
-- Internal Config dataclass extended with signatures_only and
-grep_pattern fields.
-
-- render_markdown and render_xml updated to support the new
-signatures-only output branch.
+- Internal Config dataclass extended with signatures_only and grep_pattern fields.
+- render_markdown and render_xml updated to support the new signatures-only output branch.
 
 ### Rationale
-- Benchmarking discussed in https://habr.com/ru/articles/1042880/ found that
-"read all files" context strategies for LLM agents correlate with degraded
-output quality and token counts an order of magnitude higher than scoped
-alternatives (e.g. symbol maps). This release brings an equivalent scoping
-option (--signatures-only) and a relevance filter (--grep) to
-project_context.py, plus a safeguard warning for unscoped full dumps on
-larger projects.
+- Benchmarking discussed in https://habr.com/ru/articles/1042880/ found that "read all files" context strategies for LLM agents correlate with degraded output quality and token counts an order of magnitude higher than scoped alternatives (e.g. symbol maps). This release brings an equivalent scoping option (--signatures-only) and a relevance filter (--grep) to project_context.py, plus a safeguard warning for unscoped full dumps on larger projects.
 
 ## [1.0.2.0] - 2026-07-21
 
 ### Added
-- `tools/project_context.py` — standalone developer tool, unrelated to the trading/reporting
-  functionality of this project. Recursively scans the repository and merges its
-  structure and file contents into a single Markdown or XML-like document, optimized
-  for pasting into LLM chat context (ChatGPT, Claude, Gemini). Respects `.gitignore`,
-  filters out virtual envs, caches, and binaries by default, and supports
-  `--tree-only`, `--changed-only` (git-diff-aware context updates), `--max-chars`
+- `tools/project_context.py` — standalone developer tool, unrelated to the trading/reporting functionality of this project. Recursively scans the repository and merges its structure and file contents into a single Markdown or XML-like document, optimized for pasting into LLM chat context (ChatGPT, Claude, Gemini). Respects `.gitignore`, filters out virtual envs, caches, and binaries by default, and supports `--tree-only`, `--changed-only` (git-diff-aware context updates), `--max-chars`
   (auto-splitting), and `--clipboard` output.
-- `tools/test_context.md` — sample output of `project_context.py` run against this repo,
-  kept as a reference/example of the tool's output format. Not required for the
-  application to run and safe to regenerate or delete at any time.
 
 ### Notes
-- Both files are development-workflow tooling only. They have no import
-  dependency on `src/`, `start.py`, or `update.py`, and are excluded from
-  coverage/lint gating changes — `ruff` and `black` still apply to them since
-  they are `.py` files, but they carry no runtime risk to the tracker itself.
+- Tool files are development-workflow tooling only. They have no import dependency on `src/`, `start.py`, or `update.py`, and are excluded from coverage/lint gating changes — `ruff` and `black` still apply to them since they are `.py` files, but they carry no runtime risk to the tracker itself.
 
 ## [1.0.1.0] - 2026-07-16
 ### Added
