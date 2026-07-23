@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Coverage](https://codecov.io/gh/patan4ik/kraken-portfolio-tracker/branch/main/graph/badge.svg)
-![Version](https://img.shields.io/badge/version-1.0.4.0-brightgreen)
+![Version](https://img.shields.io/badge/version-1.0.5.0-brightgreen)
 
 # Kraken Portfolio Tracker
 
@@ -278,14 +278,14 @@ and zipped (see release assets on the [Releases page](https://github.com/patan4i
 
 This repository includes, located in `tools/project_context.py` — a standalone script unrelated to portfolio tracking or reporting. It exists purely to help contributors and the maintainer quickly share the full (or partial) project structure and source code with an LLM assistant when debugging, reviewing, or planning changes — without manually copy-pasting dozens of files into a chat.
 
-Inspired by benchmarking research on LLM context strategies, which showed that "read all files" context dumps correlate with degraded LLM output quality and excessive token usage. This release adds intermediate context-scoping options between --tree-only and a full dump.
+Inspired by benchmarking research on LLM context strategies, which showed that "read all files" context dumps correlate with degraded LLM output quality and excessive token usage. This tool adds intermediate context-scoping options between `--tree-only` and a full dump.
 
---grep PATTERN — include only files whose content matches a regex pattern.
-Useful for pulling in just the code relevant to a specific class, function, or feature name.
+- **`--grep PATTERN`** — include only files whose content matches a regex pattern. Useful for pulling in just the code relevant to a specific class, function, or feature name.
+- **`--signatures-only`** — output function/class signatures via Python's `ast` module, without full implementation bodies. Gives the LLM an interface map at a fraction of the token cost of a full dump.
+- **`--graph`** — OKF-flavored output: one markdown file per module, with YAML frontmatter (`depends_on`, `used_by`) and cross-file links reflecting the project's actual import graph, plus an `index.md`. Costs more tokens than `--signatures-only`, but structures output as linked, navigable per-module files instead of one flat block — useful for scoped exploration of a module and its direct dependencies.
+- **`--report`** — runs full, `--signatures-only`, `--graph` (and `--grep`, if a pattern is also given) against the same root in one command, and prints a comparison table of character counts, `tiktoken` (`cl100k_base`) token counts, percentage reduction, and size multiplier vs. the full dump. Requires `pip install tiktoken`; all other modes remain dependency-free.
 
---signatures-only — output function/class signatures via Python's ast module, without full implementation bodies. Gives the LLM an interface map at a fraction of the token cost of a full dump.
-
-Automatic runtime warning when full-dump mode includes more than 40 files without any scoping flag (--changed-only, --signatures-only, --grep).
+Automatic runtime warning when full-dump mode includes more than 40 files without any scoping flag (`--changed-only`, `--signatures-only`, `--graph`, `--grep`).
 
 Usage examples:
 
@@ -302,24 +302,39 @@ python tools/project_context.py --grep "PortfolioSummary" --output portfolio_con
 # Fast interface map without full code
 python tools/project_context.py --signatures-only --output signatures.md
 
+# OKF-flavored dependency graph — one linked markdown file per module
+python tools/project_context.py --graph --output project_graph
+
 # Full project dump for LLM context
 python tools/project_context.py --output context.md
+
+# Benchmark all modes at once (requires: pip install tiktoken)
+python tools/project_context.py --report --grep "PortfolioSummary"
 ```
 
 `tools/test_context.md` is a sample output of this tool and can be regenerated or deleted freely — it is not consumed by any part of the application, tests, or CI pipeline.
 
-## Real-world token savings (v1.0.3.0 benchmark)
+## Real-world token savings (v1.0.5.0 benchmark, via `--report`)
 
-Measured on a live production codebase (Kraken portfolio tracker, ~subset of files matching the tool's default Python profile) using `tiktoken` (`cl100k_base` encoding):
+Measured on a live production codebase (Kraken portfolio tracker) using the tool's built-in `--report` command, backed by `tiktoken` (`cl100k_base` encoding) — not manual scripts:
 
 | Mode | Output size | Input tokens | Savings vs. full dump |
 |---|---|---|---|
-| Full dump (no flags) | 313,339 chars | 73,694 tokens | — |
-| `--signatures-only` | 20,200 chars | 4,717 tokens | **93.6% fewer tokens (15.6x smaller)** |
-| `--grep "ClassName"` | 40,507 chars | 8,984 tokens | **87.8% fewer tokens (8.2x smaller)** |
+| Full dump (no flags) | 330,126 chars | 81,325 tokens | — |
+| `--signatures-only` | 18,786 chars | 4,630 tokens | **94.3% fewer tokens (17.6x smaller)** |
+| `--grep "PortfolioSummary"` | 101,550 chars | 24,355 tokens | **70.1% fewer tokens (3.3x smaller)** |
+| `--graph` | 31,519 chars | 8,250 tokens | **89.9% fewer tokens (9.9x smaller)** |
 
-Takeaway: for architectural awareness (interfaces, class/function structure), `--signatures-only` gives an LLM nearly the same map at ~6% of the token cost.
-For focused debugging on a specific class or feature, `--grep` narrows scope to relevant files while keeping full implementation detail.
+Takeaway: for architectural awareness (interfaces, class/function structure), `--signatures-only` gives an LLM nearly the same map at under 6% of the token cost of a full dump.
+For focused debugging on a specific class or feature, `--grep` narrows scope to relevant files while keeping full implementation detail — actual savings depend on how common the search pattern is across the codebase.
+For scoped, navigable exploration of one module and its dependency chain, `--graph` trades some token savings for structure — it costs more than `--signatures-only` but organizes output as linked per-module files rather than one flat document.
+
+Reproduce this benchmark on your own project with:
+
+```bash
+pip install tiktoken
+python tools/project_context.py --report
+```
 
 ## Contributing
 
